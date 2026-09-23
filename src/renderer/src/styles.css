@@ -101,7 +101,10 @@ button, input {
 .task-add { display: flex; gap: 4px; margin-top: 8px; }
 .task-add input { flex: 1; border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 13px; }
 
-.view-body { flex: 1; overflow: auto; position: relative; }
+/* Non-scrolling: the day/week header stays put, only the hour grid below scrolls. */
+.view-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; min-height: 0; }
+
+.time-grid-scroll { flex: 1; overflow-y: auto; position: relative; min-height: 0; }
 
 .time-grid { display: flex; }
 .time-gutter { width: 56px; flex-shrink: 0; }
@@ -110,6 +113,12 @@ button, input {
 .day-col { flex: 1; position: relative; border-inline-start: 1px solid var(--border); }
 .day-col .hour-line { height: 48px; border-bottom: 1px solid var(--border); }
 .day-col.holiday { background: #fff5f4; }
+
+.now-line { position: absolute; right: 0; left: 0; height: 2px; background: var(--holiday); z-index: 2; pointer-events: none; }
+.now-line::before {
+  content: ''; position: absolute; right: -4px; top: -3px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--holiday);
+}
 
 .event-box {
   position: absolute;
@@ -129,7 +138,7 @@ button, input {
 .week-header .day-head.holiday { color: var(--holiday); }
 .week-header .day-head.today { font-weight: 700; }
 
-.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 1fr; height: 100%; }
+.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 1fr; flex: 1; overflow-y: auto; min-height: 0; }
 .month-cell { border: 1px solid var(--border); padding: 4px; min-height: 90px; overflow: hidden; }
 .month-cell .day-num { font-size: 12px; margin-bottom: 4px; }
 .month-cell.holiday .day-num { color: var(--holiday); }

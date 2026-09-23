@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Category, EventRecord, Occurrence } from '@shared/types'
+import { sameJalaliDate, toJalali } from '@shared/jalali'
 import { useAppStore } from '../store'
 import { useApi } from '../apiContext'
 import { useHolidays } from '../useHolidays'
@@ -27,6 +28,7 @@ export function DayView() {
 
   const categoriesById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
   const info = holidays?.get(selectedDate)
+  const isToday = useMemo(() => sameJalaliDate(selectedDate, toJalali(new Date())), [selectedDate])
 
   async function handleSave(result: EventDialogResult) {
     await api.events.create(result)
@@ -48,7 +50,7 @@ export function DayView() {
             dayStartTs: dayStart,
             dayEndTs: dayEnd,
             isHoliday: !!info?.isHoliday,
-            isToday: false,
+            isToday,
             occurrences
           }
         ]}

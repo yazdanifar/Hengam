@@ -21,4 +21,8 @@ export class FakePowerEvents implements PowerEvents {
   fireUnlock(): void {
     this.unlockCbs.forEach((cb) => cb())
   }
+
+  listenerCount(): number {
+    return this.resumeCbs.length + this.unlockCbs.length
+  }
 }

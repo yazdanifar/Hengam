@@ -11,7 +11,10 @@ const HOUR_MS = 60 * 60 * 1000
  */
 export class DayTicker {
   private today: JalaliDate
-  private timer: unknown
+  private midnightTimer: unknown
+  private hourlyTimer: unknown
+  private unsubResume?: () => void
+  private unsubUnlock?: () => void
 
   constructor(
     private clock: Clock,
@@ -22,8 +25,8 @@ export class DayTicker {
   }
 
   start(): void {
-    this.power.onResume(() => this.checkNow())
-    this.power.onUnlockScreen(() => this.checkNow())
+    this.unsubResume = this.power.onResume(() => this.checkNow())
+    this.unsubUnlock = this.power.onUnlockScreen(() => this.checkNow())
     this.armMidnightTimer()
     this.armHourlySafetyNet()
   }
@@ -40,20 +43,28 @@ export class DayTicker {
     const now = new Date(this.clock.now())
     const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1)
     const delay = nextMidnight.getTime() - now.getTime()
-    this.timer = this.clock.setTimeout(() => {
+    this.midnightTimer = this.clock.setTimeout(() => {
       this.checkNow()
       this.armMidnightTimer()
     }, delay)
   }
 
   private armHourlySafetyNet(): void {
-    this.clock.setTimeout(() => {
+    this.hourlyTimer = this.clock.setTimeout(() => {
       this.checkNow()
       this.armHourlySafetyNet()
     }, HOUR_MS)
   }
 
+  /** Clears both timer chains and unsubscribes from power events, releasing every resource start() acquired. */
   stop(): void {
-    if (this.timer !== undefined) this.clock.clearTimeout(this.timer)
+    if (this.midnightTimer !== undefined) this.clock.clearTimeout(this.midnightTimer)
+    if (this.hourlyTimer !== undefined) this.clock.clearTimeout(this.hourlyTimer)
+    this.unsubResume?.()
+    this.unsubUnlock?.()
+    this.midnightTimer = undefined
+    this.hourlyTimer = undefined
+    this.unsubResume = undefined
+    this.unsubUnlock = undefined
   }
 }

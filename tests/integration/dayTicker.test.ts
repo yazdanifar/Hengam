@@ -39,4 +39,25 @@ describe('DayTicker', () => {
     clock.advance(60 * 60 * 1000) // one hour later, same day
     expect(changes).toHaveLength(0)
   })
+
+  it('stop() releases every resource start() acquired: both timer chains and both power subscriptions', () => {
+    const clock = new FakeClock('2026-09-22T10:00:00')
+    const power = new FakePowerEvents()
+    const changes: string[] = []
+    const ticker = new DayTicker(clock, power, (d) => changes.push(`${d.jy}-${d.jm}-${d.jd}`))
+    ticker.start()
+    expect(power.listenerCount()).toBe(2) // resume + unlock-screen
+
+    ticker.stop()
+    expect(power.listenerCount()).toBe(0)
+
+    // Neither the midnight timer nor the hourly safety net should still be armed.
+    clock.advance(48 * 60 * 60 * 1000) // two full days, crossing midnight twice
+    expect(changes).toHaveLength(0)
+
+    // A resume/unlock after stop() must not call back into onDayChanged either.
+    power.fireResume()
+    power.fireUnlock()
+    expect(changes).toHaveLength(0)
+  })
 })

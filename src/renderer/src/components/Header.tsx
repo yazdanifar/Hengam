@@ -29,8 +29,12 @@ export function Header() {
         ›
       </button>
       <div className="date-title">
-        {weekday} {toFaDigits(selectedDate.jd)} {MONTH_NAMES[selectedDate.jm - 1]} {toFaDigits(selectedDate.jy)}
-        <span className="greg">{gregLabel}</span>
+        <span className="jalali">
+          {weekday} {toFaDigits(selectedDate.jd)} {MONTH_NAMES[selectedDate.jm - 1]} {toFaDigits(selectedDate.jy)}
+        </span>
+        <span className="greg" dir="ltr">
+          {gregLabel}
+        </span>
       </div>
       <div className="view-switcher" role="tablist">
         {VIEWS.map((v) => (

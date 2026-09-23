@@ -1,7 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import { toFaDigits } from '@shared/format'
 import type { Occurrence } from '@shared/types'
-import type { Category } from '@shared/types'
 import { layoutOverlaps } from './layoutOverlaps'
 import { anchorScrollTop, computeAnchorHour } from './scrollTarget'
 import { useNowTick } from '../../useNowTick'
@@ -17,7 +16,6 @@ export interface DayColumn {
 
 interface Props {
   columns: DayColumn[]
-  categoriesById: Map<string, Category>
   onSlotClick(dayStartTs: number, hour: number): void
   onEventClick(occ: Occurrence): void
 }
@@ -26,7 +24,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i)
 // Must match .time-gutter .slot / .hour-line { height: 48px } in styles.css.
 const HOUR_HEIGHT_PX = 48
 
-export function TimeGrid({ columns, categoriesById, onSlotClick, onEventClick }: Props) {
+export function TimeGrid({ columns, onSlotClick, onEventClick }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const now = useNowTick()
 
@@ -63,7 +61,6 @@ export function TimeGrid({ columns, categoriesById, onSlotClick, onEventClick }:
     <div className="time-grid-scroll" ref={scrollRef}>
       <div className="time-grid">
         <div className="time-gutter">
-          <div className="slot" />
           {HOURS.map((h) => (
             <div className="slot" key={h}>
               {toFaDigits(h)}:۰۰
@@ -96,7 +93,7 @@ export function TimeGrid({ columns, categoriesById, onSlotClick, onEventClick }:
                   const id = `${occ.eventId}-${occ.occurrenceStartTs}`
                   const box = boxById.get(id)
                   if (!box) return null
-                  const color = categoriesById.get(occ.categoryId)?.color ?? '#888'
+                  const color = occ.color
                   return (
                     <div
                       key={id}

@@ -21,7 +21,7 @@ describe('ReminderService', () => {
     const { clock, events, notifier, reminders } = setup('2026-09-22T08:50:00')
     events.create({
       title: 'جلسه',
-      categoryId: 'work',
+      color: '#3b82f6',
       startTs: new Date('2026-09-22T09:00:00').getTime(),
       endTs: new Date('2026-09-22T10:00:00').getTime(),
       allDay: false,
@@ -40,7 +40,7 @@ describe('ReminderService', () => {
     const { events, notifier, reminders } = setup('2026-09-22T09:30:00')
     events.create({
       title: 'جلسه',
-      categoryId: 'work',
+      color: '#3b82f6',
       startTs: new Date('2026-09-22T09:00:00').getTime(),
       endTs: new Date('2026-09-22T10:00:00').getTime(),
       allDay: false,
@@ -54,7 +54,7 @@ describe('ReminderService', () => {
     const { clock, events, notifier, reminders } = setup('2026-09-22T08:55:00')
     events.create({
       title: 'روزانه',
-      categoryId: 'work',
+      color: '#3b82f6',
       startTs: new Date('2026-09-22T09:00:00').getTime(),
       endTs: new Date('2026-09-22T09:30:00').getTime(),
       allDay: false,
@@ -73,7 +73,7 @@ describe('ReminderService', () => {
     const { clock, events, notifier, reminders } = setup('2026-09-22T08:00:00')
     const ev = events.create({
       title: 'جلسه',
-      categoryId: 'work',
+      color: '#3b82f6',
       startTs: new Date('2026-09-22T09:00:00').getTime(),
       endTs: new Date('2026-09-22T10:00:00').getTime(),
       allDay: false,
@@ -92,7 +92,7 @@ describe('ReminderService', () => {
     const { events, notifier, reminders } = setup('2026-09-22T08:55:00')
     events.create({
       title: 'جلسه',
-      categoryId: 'work',
+      color: '#3b82f6',
       startTs: new Date('2026-09-22T09:00:00').getTime(),
       endTs: new Date('2026-09-22T09:30:00').getTime(),
       allDay: false,

@@ -38,8 +38,6 @@
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "better-sqlite3": "^13.0.3",
-    "google-auth-library": "^9.14.1",
-    "googleapis": "^144.0.0",
     "jalaali-js": "^1.2.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

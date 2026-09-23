@@ -46,6 +46,26 @@ export interface HolidayFeed {
   fetchYear(jy: number): Promise<unknown>
 }
 
+/** One-shot loopback HTTP listener for the OAuth redirect (RFC 8252 §7.3). */
+export interface LoopbackRedirect {
+  /** e.g. http://127.0.0.1:53421/callback — exactly what goes in redirect_uri. */
+  readonly redirectUri: string
+  /** Resolves with the query params of the first callback request, or rejects on abort. */
+  waitForCallback(signal: AbortSignal): Promise<Record<string, string>>
+  /** Idempotent; closes the socket and rejects any pending waitForCallback. */
+  close(): void
+}
+
+export interface LoopbackServerPort {
+  /** Binds 127.0.0.1 on an ephemeral port. */
+  listen(pathname: string): Promise<LoopbackRedirect>
+}
+
+/** Pushes typed events from main to the renderer. No-op until a window is attached. */
+export interface RendererBridge {
+  send(channel: string, payload: unknown): void
+}
+
 export interface Ports {
   db: Database.Database
   clock: Clock
@@ -57,5 +77,7 @@ export interface Ports {
   dock: DockPort
   tray: TrayPort
   holidayFeed: HolidayFeed
+  loopback: LoopbackServerPort
+  bridge: RendererBridge
   dataDir: string
 }

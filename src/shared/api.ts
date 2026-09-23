@@ -1,11 +1,12 @@
 // The single contract between the renderer and the main process. The preload
 // script implements this over IPC; tests implement it with an in-memory FakeApi.
-import type { Category, DayInfo, EventException, EventRecord, Occurrence, Task } from './types'
+import type { DayInfo, EventException, EventRecord, Occurrence, Task } from './types'
+import type { MainToRendererEvents, SyncCalendarDto, SyncStatus } from './events'
 
 export interface CreateEventInput {
   title: string
   notes?: string
-  categoryId: string
+  color: string
   startTs: number
   endTs: number
   allDay: boolean
@@ -28,9 +29,6 @@ export interface HengamApi {
     remove(id: string, scope?: 'this' | 'all', occurrenceStartTs?: number): Promise<void>
     listExceptions(eventId: string): Promise<EventException[]>
   }
-  categories: {
-    list(): Promise<Category[]>
-  }
   tasks: {
     listForDate(jdate: string): Promise<Task[]>
     create(jdate: string, title: string): Promise<Task>
@@ -40,5 +38,18 @@ export interface HengamApi {
   }
   holidays: {
     year(jy: number): Promise<{ jm: number; jd: number; info: DayInfo }[]>
+  }
+  google: {
+    status(): Promise<SyncStatus>
+    connect(): Promise<SyncStatus>
+    cancelConnect(): Promise<void>
+    disconnect(): Promise<SyncStatus>
+    syncNow(): Promise<SyncStatus>
+    listCalendars(): Promise<SyncCalendarDto[]>
+    refreshCalendars(): Promise<SyncCalendarDto[]>
+    setCalendarEnabled(calendarId: string, enabled: boolean): Promise<void>
+    setDefaultTarget(calendarId: string): Promise<void>
+    onStatus(cb: (s: SyncStatus) => void): () => void
+    onEventsChanged(cb: (p: MainToRendererEvents['events:changed']) => void): () => void
   }
 }

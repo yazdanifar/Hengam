@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Category, Occurrence } from '@shared/types'
+import type { Occurrence } from '@shared/types'
 import { WEEKDAY_LABELS, isFriday, sameJalaliDate, startOfJalaliWeek, toJalali } from '@shared/jalali'
 import { toFaDigits as digits } from '@shared/format'
 import { useAppStore } from '../store'
@@ -10,10 +10,9 @@ import { EventDialog, type EventDialogResult } from '../components/EventDialog'
 
 export function WeekView() {
   const api = useApi()
-  const { selectedDate, selectedGregorian } = useAppStore()
+  const { selectedDate, selectedGregorian, dataVersion } = useAppStore()
   const holidays = useHolidays(selectedDate.jy)
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
   const [dialog, setDialog] = useState<Date | null>(null)
 
   const weekStart = useMemo(() => startOfJalaliWeek(selectedGregorian), [selectedGregorian])
@@ -21,14 +20,8 @@ export function WeekView() {
   const today = useMemo(() => toJalali(new Date()), [])
 
   useEffect(() => {
-    api.categories.list().then(setCategories)
-  }, [api])
-
-  useEffect(() => {
     api.events.range(weekStart.getTime(), weekEnd.getTime()).then(setOccurrences)
-  }, [api, weekStart, weekEnd])
-
-  const categoriesById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
+  }, [api, weekStart, weekEnd, dataVersion])
 
   const days = useMemo(
     () =>
@@ -81,7 +74,6 @@ export function WeekView() {
       </div>
       <TimeGrid
         columns={columns}
-        categoriesById={categoriesById}
         onSlotClick={(dayStartTs, hour) => setDialog(new Date(dayStartTs + hour * 3600_000))}
         onEventClick={() => {}}
       />

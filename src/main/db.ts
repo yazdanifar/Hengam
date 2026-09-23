@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3'
 
+export const DEFAULT_EVENT_COLOR = '#3b82f6'
+
 const MIGRATIONS: string[] = [
   // v1: initial schema
   `
@@ -66,15 +68,34 @@ const MIGRATIONS: string[] = [
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  `,
+  // v2: Google Calendar sync bookkeeping. The unique index is safe only because no
+  // existing code path ever wrote a non-NULL google_id, so every pre-existing row has
+  // google_id IS NULL and the partial index starts empty.
   `
-]
+  CREATE UNIQUE INDEX idx_events_google_uid
+    ON events(calendar_id, google_id) WHERE google_id IS NOT NULL;
+  CREATE INDEX idx_events_dirty ON events(dirty) WHERE dirty = 1;
+  ALTER TABLE events ADD COLUMN remote_updated_at INTEGER;
 
-const SEED_CATEGORIES: { id: string; name: string; color: string }[] = [
-  { id: 'work', name: 'کار', color: '#3b82f6' },
-  { id: 'personal', name: 'شخصی', color: '#10b981' },
-  { id: 'study', name: 'مطالعه', color: '#8b5cf6' },
-  { id: 'sport', name: 'ورزش', color: '#f59e0b' },
-  { id: 'family', name: 'خانواده', color: '#ef4444' }
+  ALTER TABLE event_exceptions ADD COLUMN google_id TEXT;
+  ALTER TABLE event_exceptions ADD COLUMN etag TEXT;
+  ALTER TABLE event_exceptions ADD COLUMN dirty INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE event_exceptions ADD COLUMN remote_updated_at INTEGER;
+  CREATE INDEX idx_exceptions_google_id ON event_exceptions(google_id);
+
+  INSERT OR IGNORE INTO categories (id, name, color) VALUES ('google', 'گوگل', '#4285f4');
+  `,
+  // v3: drop categories in favor of a plain per-event color, defaulting existing rows to
+  // their old category's color so nothing visually jumps on upgrade.
+  `
+  ALTER TABLE events ADD COLUMN color TEXT NOT NULL DEFAULT '${DEFAULT_EVENT_COLOR}';
+  UPDATE events SET color = COALESCE(
+    (SELECT color FROM categories WHERE categories.id = events.category_id), '${DEFAULT_EVENT_COLOR}'
+  );
+  ALTER TABLE events DROP COLUMN category_id;
+  DROP TABLE categories;
+  `
 ]
 
 /** Applies every migration the given database is missing, tracked via PRAGMA user_version. */
@@ -87,10 +108,6 @@ export function migrate(db: Database.Database): void {
     for (let v = current; v < MIGRATIONS.length; v++) {
       db.exec(MIGRATIONS[v])
       db.pragma(`user_version = ${v + 1}`)
-    }
-    if (current === 0) {
-      const insert = db.prepare('INSERT INTO categories (id, name, color) VALUES (@id, @name, @color)')
-      for (const c of SEED_CATEGORIES) insert.run(c)
     }
   })
   apply()

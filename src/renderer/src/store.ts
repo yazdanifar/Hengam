@@ -7,6 +7,10 @@ interface AppState {
   view: ViewMode
   selectedDate: JalaliDate
   selectedGregorian: Date
+  /** Bumped whenever main tells us local data changed underneath us (e.g. a Google pull);
+   *  views include it in their fetch effect's deps to refetch without a manual navigation. */
+  dataVersion: number
+  bumpDataVersion(): void
   setView(v: ViewMode): void
   goToday(): void
   goto(d: Date): void
@@ -17,6 +21,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   view: 'day',
   selectedDate: toJalali(new Date()),
   selectedGregorian: new Date(new Date().setHours(0, 0, 0, 0)),
+  dataVersion: 0,
+  bumpDataVersion: () => set((s) => ({ dataVersion: s.dataVersion + 1 })),
   setView: (v) => set({ view: v }),
   goToday: () => {
     const d = new Date(new Date().setHours(0, 0, 0, 0))

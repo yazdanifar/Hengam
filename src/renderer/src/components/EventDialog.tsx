@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
-import type { Category, EventRecord, RecurrenceRule } from '@shared/types'
+import { useState } from 'react'
+import type { EventRecord, RecurrenceRule } from '@shared/types'
 import { parseDigits, toFaDigits, pad2 } from '@shared/format'
 import { WEEKDAY_LABELS } from '@shared/jalali'
-import { useApi } from '../apiContext'
+import { useDialogA11y } from '../useDialogA11y'
+
+const DEFAULT_EVENT_COLOR = '#3b82f6'
 
 export interface EventDialogResult {
   title: string
   notes?: string
-  categoryId: string
+  color: string
   startTs: number
   endTs: number
   allDay: boolean
@@ -34,11 +36,10 @@ function withTime(base: Date, hhmm: string): Date {
 }
 
 export function EventDialog({ initialDate, existing, onClose, onSave }: Props) {
-  const api = useApi()
-  const [categories, setCategories] = useState<Category[]>([])
+  const { ref, dialogProps, titleId } = useDialogA11y(onClose)
   const [title, setTitle] = useState(existing?.title ?? '')
   const [notes, setNotes] = useState(existing?.notes ?? '')
-  const [categoryId, setCategoryId] = useState(existing?.categoryId ?? '')
+  const [color, setColor] = useState(existing?.color ?? DEFAULT_EVENT_COLOR)
   const start = existing ? new Date(existing.startTs) : initialDate
   const end = existing ? new Date(existing.endTs) : new Date(initialDate.getTime() + 3600_000)
   const [startTime, setStartTime] = useState(timeStr(start))
@@ -49,13 +50,6 @@ export function EventDialog({ initialDate, existing, onClose, onSave }: Props) {
     existing?.reminderMin !== undefined ? String(existing.reminderMin) : ''
   )
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    api.categories.list().then((cats) => {
-      setCategories(cats)
-      if (!categoryId && cats[0]) setCategoryId(cats[0].id)
-    })
-  }, [api])
 
   function toggleWeekday(i: number) {
     setByWeekday((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i].sort()))
@@ -78,7 +72,7 @@ export function EventDialog({ initialDate, existing, onClose, onSave }: Props) {
     onSave({
       title: title.trim(),
       notes: notes.trim() || undefined,
-      categoryId,
+      color,
       startTs,
       endTs,
       allDay: false,
@@ -89,8 +83,11 @@ export function EventDialog({ initialDate, existing, onClose, onSave }: Props) {
 
   return (
     <div className="dialog-backdrop" onClick={onClose}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h2>{existing ? 'ویرایش رویداد' : 'رویداد جدید'}</h2>
+      <div className="dialog" onClick={(e) => e.stopPropagation()} ref={ref} {...dialogProps}>
+        <h2 id={titleId}>{existing ? 'ویرایش رویداد' : 'رویداد جدید'}</h2>
+        {existing?.googleId && (
+          <div className="settings-note">این رویداد با تقویم گوگل همگام است.</div>
+        )}
         <div className="field">
           <label htmlFor="ev-title">عنوان</label>
           <input id="ev-title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
@@ -106,14 +103,14 @@ export function EventDialog({ initialDate, existing, onClose, onSave }: Props) {
           </div>
         </div>
         <div className="field">
-          <label htmlFor="ev-category">دسته‌بندی</label>
-          <select id="ev-category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <label htmlFor="ev-color">رنگ</label>
+          <input
+            id="ev-color"
+            type="color"
+            className="color-input"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+          />
         </div>
         <div className="field">
           <label htmlFor="ev-freq">تکرار</label>

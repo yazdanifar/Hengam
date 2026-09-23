@@ -13,7 +13,7 @@ describe('EventsRepo', () => {
   it('creates and reads back an event', () => {
     const ev = repo.create({
       title: 'جلسه تیم',
-      categoryId: 'work',
+      color: '#3b82f6',
       startTs: toGregorian(1405, 6, 31).getTime() + 9 * 3600_000,
       endTs: toGregorian(1405, 6, 31).getTime() + 10 * 3600_000,
       allDay: false
@@ -26,7 +26,7 @@ describe('EventsRepo', () => {
   it('update sets updated_at and dirty', () => {
     const ev = repo.create({
       title: 'a',
-      categoryId: 'work',
+      color: '#3b82f6',
       startTs: 1000,
       endTs: 2000,
       allDay: false
@@ -40,25 +40,18 @@ describe('EventsRepo', () => {
   })
 
   it('soft delete hides the event from getById but keeps the row', () => {
-    const ev = repo.create({ title: 'x', categoryId: 'work', startTs: 1000, endTs: 2000, allDay: false })
+    const ev = repo.create({ title: 'x', color: '#3b82f6', startTs: 1000, endTs: 2000, allDay: false })
     repo.softDelete(ev.id)
     expect(repo.getById(ev.id)).toBeUndefined()
     const raw = db.prepare('SELECT * FROM events WHERE id = ?').get(ev.id)
     expect(raw).toBeDefined()
   })
 
-  it('cascades when a category is deleted', () => {
-    db.prepare("INSERT INTO categories (id, name, color) VALUES ('temp','Temp','#000')").run()
-    const ev = repo.create({ title: 'x', categoryId: 'temp', startTs: 1000, endTs: 2000, allDay: false })
-    db.prepare("DELETE FROM categories WHERE id='temp'").run()
-    expect(repo.getById(ev.id)).toBeUndefined()
-  })
-
   it('rangeQuery finds a recurring series across a week boundary, applying exceptions', () => {
     const start = toGregorian(1405, 1, 1).getTime() + 9 * 3600_000
     const ev = repo.create({
       title: 'روزانه',
-      categoryId: 'work',
+      color: '#3b82f6',
       startTs: start,
       endTs: start + 3600_000,
       allDay: false,

@@ -9,7 +9,7 @@ function toOccurrence(ev: EventRecord, occurrenceStartTs: number, startTs: numbe
     occurrenceStartTs,
     title: ev.title,
     notes: ev.notes,
-    categoryId: ev.categoryId,
+    color: ev.color,
     startTs,
     endTs,
     allDay: ev.allDay,
@@ -28,7 +28,7 @@ function applyException(
     ...base,
     title: ex.override?.title ?? base.title,
     notes: ex.override?.notes ?? base.notes,
-    categoryId: ex.override?.categoryId ?? base.categoryId,
+    color: ex.override?.color ?? base.color,
     startTs: ex.override?.startTs ?? base.startTs,
     endTs: ex.override?.endTs ?? base.endTs
   }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Category, EventRecord, Occurrence } from '@shared/types'
+import type { EventRecord, Occurrence } from '@shared/types'
 import { sameJalaliDate, toJalali } from '@shared/jalali'
 import { useAppStore } from '../store'
 import { useApi } from '../apiContext'
@@ -9,24 +9,18 @@ import { EventDialog, type EventDialogResult } from '../components/EventDialog'
 
 export function DayView() {
   const api = useApi()
-  const { selectedDate, selectedGregorian } = useAppStore()
+  const { selectedDate, selectedGregorian, dataVersion } = useAppStore()
   const holidays = useHolidays(selectedDate.jy)
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
   const [dialog, setDialog] = useState<{ date: Date; existing?: EventRecord } | null>(null)
 
   const dayStart = useMemo(() => new Date(selectedGregorian).setHours(0, 0, 0, 0), [selectedGregorian])
   const dayEnd = dayStart + 24 * 60 * 60 * 1000
 
   useEffect(() => {
-    api.categories.list().then(setCategories)
-  }, [api])
-
-  useEffect(() => {
     api.events.range(dayStart, dayEnd).then(setOccurrences)
-  }, [api, dayStart, dayEnd])
+  }, [api, dayStart, dayEnd, dataVersion])
 
-  const categoriesById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
   const info = holidays?.get(selectedDate)
   const isToday = useMemo(() => sameJalaliDate(selectedDate, toJalali(new Date())), [selectedDate])
 
@@ -54,7 +48,6 @@ export function DayView() {
             occurrences
           }
         ]}
-        categoriesById={categoriesById}
         onSlotClick={(dayStartTs, hour) => setDialog({ date: new Date(dayStartTs + hour * 3600_000) })}
         onEventClick={() => {}}
       />

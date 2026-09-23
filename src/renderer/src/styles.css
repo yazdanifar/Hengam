@@ -20,7 +20,7 @@ body {
   direction: rtl;
 }
 
-button, input {
+button, input, select, textarea {
   font-family: inherit;
 }
 
@@ -155,10 +155,58 @@ button, input {
 .field input, .field select, .field textarea {
   border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 13px;
 }
+.field input.color-input {
+  padding: 2px; height: 32px; width: 56px; cursor: pointer;
+}
 .field-row { display: flex; gap: 8px; }
 .field-row .field { flex: 1; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .btn { border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
 .btn-primary { background: var(--accent); color: white; }
 .btn-secondary { background: var(--border); }
+.btn-danger { background: var(--holiday); color: white; }
+.btn:disabled { opacity: .5; cursor: default; }
 .error-text { color: var(--holiday); font-size: 12px; }
+
+/* Sync settings dialog. .dialog-wide is a modifier — widening .dialog itself would
+   silently reflow EventDialog. */
+.dialog.dialog-wide { width: 460px; }
+
+.settings-section { margin-bottom: 20px; }
+.settings-section h3 { font-size: 13px; color: var(--text-muted); margin: 12px 0 8px; font-weight: 700; }
+.settings-note { font-size: 12px; color: var(--text-muted); line-height: 1.7; margin-bottom: 12px; }
+
+.account-row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 12px; }
+.account-row .email { unicode-bidi: isolate; direction: ltr; color: var(--text-muted); font-size: 12px; }
+
+.cal-list { display: flex; flex-direction: column; gap: 2px; }
+.cal-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; }
+.cal-row label { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
+.cal-row input[type='radio']:disabled + span { opacity: .4; }
+.cal-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+.empty-state { font-size: 12px; color: var(--text-muted); text-align: center; padding: 16px 0; }
+
+.status-line { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.status-line.is-error { color: var(--holiday); }
+
+/* Sized to match .nav-btn/.today-btn's rendered height (13px font + 6px*2 padding + border)
+   so it sits level with its header siblings instead of floating as an undersized dot. */
+.sync-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  width: 30px; height: 30px; border-radius: 50%; box-sizing: border-box;
+  cursor: default;
+  border: 1px solid var(--border); background: var(--surface); color: var(--accent);
+}
+.sync-pill svg { width: 16px; height: 16px; display: block; }
+.sync-pill-error { color: var(--holiday); border-color: var(--holiday); cursor: pointer; }
+.sync-pill-syncing svg { animation: sync-pill-spin 1s linear infinite; transform-origin: center; }
+@keyframes sync-pill-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-pill-syncing svg { animation: none; } }
+
+.header .settings-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; box-sizing: border-box;
+  font-size: 15px; line-height: 1;
+}

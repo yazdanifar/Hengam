@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Category, Occurrence } from '@shared/types'
+import type { Occurrence } from '@shared/types'
 import {
   WEEKDAY_LABELS,
   isFriday,
@@ -18,10 +18,9 @@ const MAX_CHIPS = 3
 
 export function MonthView() {
   const api = useApi()
-  const { selectedDate, goto, setView } = useAppStore()
+  const { selectedDate, goto, setView, dataVersion } = useAppStore()
   const holidays = useHolidays(selectedDate.jy)
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
   const [dialog, setDialog] = useState<Date | null>(null)
   const today = useMemo(() => toJalali(new Date()), [])
 
@@ -30,14 +29,8 @@ export function MonthView() {
   const rangeEnd = rangeStart + 42 * 86400_000
 
   useEffect(() => {
-    api.categories.list().then(setCategories)
-  }, [api])
-
-  useEffect(() => {
     api.events.range(rangeStart, rangeEnd).then(setOccurrences)
-  }, [api, rangeStart, rangeEnd])
-
-  const categoriesById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
+  }, [api, rangeStart, rangeEnd, dataVersion])
 
   async function handleSave(result: EventDialogResult) {
     await api.events.create(result)
@@ -85,7 +78,7 @@ export function MonthView() {
                 <div
                   key={`${o.eventId}-${o.occurrenceStartTs}`}
                   className="month-chip"
-                  style={{ background: categoriesById.get(o.categoryId)?.color ?? '#888' }}
+                  style={{ background: o.color }}
                 >
                   {o.title}
                 </div>

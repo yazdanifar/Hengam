@@ -8,7 +8,7 @@ function baseEvent(overrides: Partial<EventRecord> = {}): EventRecord {
   return {
     id: 'e1',
     title: 'جلسه',
-    categoryId: 'work',
+    color: '#3b82f6',
     startTs: start,
     endTs: start + 3600_000,
     allDay: false,

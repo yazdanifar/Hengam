@@ -8,7 +8,7 @@ interface EventRow {
   id: string
   title: string
   notes: string | null
-  category_id: string
+  color: string
   start_ts: number
   end_ts: number
   all_day: number
@@ -21,6 +21,7 @@ interface EventRow {
   etag: string | null
   dirty: number
   deleted_at: number | null
+  remote_updated_at: number | null
 }
 
 function rowToEvent(row: EventRow): EventRecord {
@@ -28,7 +29,7 @@ function rowToEvent(row: EventRow): EventRecord {
     id: row.id,
     title: row.title,
     notes: row.notes ?? undefined,
-    categoryId: row.category_id,
+    color: row.color,
     startTs: row.start_ts,
     endTs: row.end_ts,
     allDay: !!row.all_day,
@@ -47,12 +48,69 @@ function rowToEvent(row: EventRow): EventRecord {
 export interface CreateEventInput {
   title: string
   notes?: string
-  categoryId: string
+  color: string
   startTs: number
   endTs: number
   allDay: boolean
   rrule?: RecurrenceRule
   reminderMin?: number
+}
+
+export interface CreateEventOpts {
+  /** Defaults to true — a locally-authored event is dirty until pushed. Pull inserts pass false. */
+  dirty?: boolean
+  calendarId?: string
+  googleId?: string
+  etag?: string
+  remoteUpdatedAt?: number
+}
+
+export interface MarkSyncedInput {
+  calendarId: string
+  googleId: string
+  etag?: string
+  remoteUpdatedAt?: number
+}
+
+export interface UpsertFromRemoteInput {
+  calendarId: string
+  googleId: string
+  etag?: string
+  remoteUpdatedAt: number
+  local: CreateEventInput
+  /** Adopts this local id instead of inserting a new row (identity match #2 — hengamId). */
+  adoptLocalId?: string
+}
+
+export interface SyncEventException extends EventException {
+  googleId?: string
+  etag?: string
+  remoteUpdatedAt?: number
+  dirty?: boolean
+}
+
+interface ExceptionRow {
+  event_id: string
+  occurrence_start_ts: number
+  kind: 'skip' | 'override'
+  override_json: string | null
+  google_id: string | null
+  etag: string | null
+  dirty: number
+  remote_updated_at: number | null
+}
+
+function rowToException(row: ExceptionRow): SyncEventException {
+  return {
+    eventId: row.event_id,
+    occurrenceStartTs: row.occurrence_start_ts,
+    kind: row.kind,
+    override: row.override_json ? JSON.parse(row.override_json) : undefined,
+    googleId: row.google_id ?? undefined,
+    etag: row.etag ?? undefined,
+    dirty: !!row.dirty,
+    remoteUpdatedAt: row.remote_updated_at ?? undefined
+  }
 }
 
 export class EventsRepo {
@@ -61,13 +119,14 @@ export class EventsRepo {
     private clock: Clock
   ) {}
 
-  create(input: CreateEventInput): EventRecord {
+  create(input: CreateEventInput, opts: CreateEventOpts = {}): EventRecord {
     const now = this.clock.now()
+    const dirty = opts.dirty ?? true
     const record: EventRecord = {
       id: randomUUID(),
       title: input.title,
       notes: input.notes,
-      categoryId: input.categoryId,
+      color: input.color,
       startTs: input.startTs,
       endTs: input.endTs,
       allDay: input.allDay,
@@ -75,25 +134,35 @@ export class EventsRepo {
       reminderMin: input.reminderMin,
       createdAt: now,
       updatedAt: now,
-      dirty: true
+      calendarId: opts.calendarId,
+      googleId: opts.googleId,
+      etag: opts.etag,
+      dirty
     }
     this.db
       .prepare(
-        `INSERT INTO events (id, title, notes, category_id, start_ts, end_ts, all_day, rrule_json, reminder_min, created_at, updated_at, dirty)
-         VALUES (@id, @title, @notes, @categoryId, @startTs, @endTs, @allDay, @rruleJson, @reminderMin, @createdAt, @updatedAt, 1)`
+        `INSERT INTO events (id, title, notes, color, start_ts, end_ts, all_day, rrule_json, reminder_min,
+                              created_at, updated_at, calendar_id, google_id, etag, dirty, remote_updated_at)
+         VALUES (@id, @title, @notes, @color, @startTs, @endTs, @allDay, @rruleJson, @reminderMin,
+                 @createdAt, @updatedAt, @calendarId, @googleId, @etag, @dirty, @remoteUpdatedAt)`
       )
       .run({
         id: record.id,
         title: record.title,
         notes: record.notes ?? null,
-        categoryId: record.categoryId,
+        color: record.color,
         startTs: record.startTs,
         endTs: record.endTs,
         allDay: record.allDay ? 1 : 0,
         rruleJson: record.rrule ? JSON.stringify(record.rrule) : null,
         reminderMin: record.reminderMin ?? null,
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        calendarId: opts.calendarId ?? null,
+        googleId: opts.googleId ?? null,
+        etag: opts.etag ?? null,
+        dirty: dirty ? 1 : 0,
+        remoteUpdatedAt: opts.remoteUpdatedAt ?? null
       })
     return record
   }
@@ -105,17 +174,20 @@ export class EventsRepo {
     return row ? rowToEvent(row) : undefined
   }
 
-  update(
-    id: string,
-    patch: Partial<CreateEventInput>
-  ): void {
+  /** Like getById but also returns soft-deleted rows — needed by sync to compare timestamps. */
+  private getByIdIncludingDeleted(id: string): EventRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM events WHERE id = ?').get(id) as EventRow | undefined
+    return row ? rowToEvent(row) : undefined
+  }
+
+  update(id: string, patch: Partial<CreateEventInput>): void {
     const existing = this.getById(id)
     if (!existing) return
     const now = this.clock.now()
     const merged = { ...existing, ...patch }
     this.db
       .prepare(
-        `UPDATE events SET title=@title, notes=@notes, category_id=@categoryId, start_ts=@startTs, end_ts=@endTs,
+        `UPDATE events SET title=@title, notes=@notes, color=@color, start_ts=@startTs, end_ts=@endTs,
          all_day=@allDay, rrule_json=@rruleJson, reminder_min=@reminderMin, updated_at=@updatedAt, dirty=1
          WHERE id=@id`
       )
@@ -123,7 +195,7 @@ export class EventsRepo {
         id,
         title: merged.title,
         notes: merged.notes ?? null,
-        categoryId: merged.categoryId,
+        color: merged.color,
         startTs: merged.startTs,
         endTs: merged.endTs,
         allDay: merged.allDay ? 1 : 0,
@@ -135,9 +207,7 @@ export class EventsRepo {
 
   /** Soft-delete: kept until pushed to Google, then purged by the sync engine. */
   softDelete(id: string): void {
-    this.db
-      .prepare('UPDATE events SET deleted_at = ?, dirty = 1 WHERE id = ?')
-      .run(this.clock.now(), id)
+    this.db.prepare('UPDATE events SET deleted_at = ?, dirty = 1 WHERE id = ?').run(this.clock.now(), id)
   }
 
   purgeDeleted(id: string): void {
@@ -145,30 +215,38 @@ export class EventsRepo {
   }
 
   addException(ex: EventException): void {
-    this.db
-      .prepare(
-        `INSERT INTO event_exceptions (event_id, occurrence_start_ts, kind, override_json)
-         VALUES (@eventId, @occurrenceStartTs, @kind, @overrideJson)
-         ON CONFLICT(event_id, occurrence_start_ts) DO UPDATE SET kind=excluded.kind, override_json=excluded.override_json`
-      )
-      .run({
-        eventId: ex.eventId,
-        occurrenceStartTs: ex.occurrenceStartTs,
-        kind: ex.kind,
-        overrideJson: ex.override ? JSON.stringify(ex.override) : null
-      })
+    const tx = this.db.transaction((e: EventException) => {
+      this.db
+        .prepare(
+          `INSERT INTO event_exceptions (event_id, occurrence_start_ts, kind, override_json, dirty)
+           VALUES (@eventId, @occurrenceStartTs, @kind, @overrideJson, 1)
+           ON CONFLICT(event_id, occurrence_start_ts)
+           DO UPDATE SET kind=excluded.kind, override_json=excluded.override_json, dirty=1`
+        )
+        .run({
+          eventId: e.eventId,
+          occurrenceStartTs: e.occurrenceStartTs,
+          kind: e.kind,
+          overrideJson: e.override ? JSON.stringify(e.override) : null
+        })
+
+      // A 'skip' on a Jalali monthly/yearly series is expressed as a Google RDATE list on
+      // the parent (there is no real RRULE to attach an EXDATE to), so the parent must be
+      // re-pushed whenever such a skip is added. 'override' exceptions are their own Google
+      // resource and don't need the parent touched.
+      if (e.kind === 'skip') {
+        const parent = this.getById(e.eventId)
+        if (parent?.rrule && (parent.rrule.freq === 'monthly' || parent.rrule.freq === 'yearly')) {
+          this.db.prepare('UPDATE events SET dirty = 1, updated_at = ? WHERE id = ?').run(this.clock.now(), e.eventId)
+        }
+      }
+    })
+    tx(ex)
   }
 
   listExceptions(eventId: string): EventException[] {
-    const rows = this.db
-      .prepare('SELECT * FROM event_exceptions WHERE event_id = ?')
-      .all(eventId) as { event_id: string; occurrence_start_ts: number; kind: 'skip' | 'override'; override_json: string | null }[]
-    return rows.map((r) => ({
-      eventId: r.event_id,
-      occurrenceStartTs: r.occurrence_start_ts,
-      kind: r.kind,
-      override: r.override_json ? JSON.parse(r.override_json) : undefined
-    }))
+    const rows = this.db.prepare('SELECT * FROM event_exceptions WHERE event_id = ?').all(eventId) as ExceptionRow[]
+    return rows.map(rowToException)
   }
 
   /** All non-deleted base events that could possibly produce an occurrence in [rangeStart, rangeEnd). */
@@ -196,5 +274,161 @@ export class EventsRepo {
     }
     out.sort((a, b) => a.startTs - b.startTs)
     return out
+  }
+
+  // ---- sync ----------------------------------------------------------------
+
+  findByGoogleId(calendarId: string, googleId: string): EventRecord | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM events WHERE calendar_id = ? AND google_id = ?')
+      .get(calendarId, googleId) as EventRow | undefined
+    return row ? rowToEvent(row) : undefined
+  }
+
+  /** Dirty rows, including soft-deleted ones — deletions must be pushed too. */
+  listDirty(limit = 500): EventRecord[] {
+    const rows = this.db.prepare('SELECT * FROM events WHERE dirty = 1 LIMIT ?').all(limit) as EventRow[]
+    return rows.map(rowToEvent)
+  }
+
+  /** After a successful push: records identity + etag and clears the dirty flag. */
+  markSynced(id: string, sync: MarkSyncedInput): void {
+    this.db
+      .prepare(
+        `UPDATE events SET calendar_id = ?, google_id = ?, etag = ?, remote_updated_at = ?, dirty = 0 WHERE id = ?`
+      )
+      .run(sync.calendarId, sync.googleId, sync.etag ?? null, sync.remoteUpdatedAt ?? null, id)
+  }
+
+  /** Clears dirty without touching identity (a push that turned out to be a no-op). */
+  clearDirty(id: string): void {
+    this.db.prepare('UPDATE events SET dirty = 0 WHERE id = ?').run(id)
+  }
+
+  /**
+   * Applies a remote event. Matches on (calendar_id, google_id) first, then adopts an
+   * unsynced local row when `adoptLocalId` is supplied, otherwise inserts new. Never
+   * resurrects a locally-deleted row unless the remote `updated` is newer than the local
+   * deleted_at.
+   */
+  upsertFromRemote(input: UpsertFromRemoteInput): string {
+    const existing = this.findByGoogleId(input.calendarId, input.googleId)
+    if (existing) {
+      if (existing.deletedAt && (input.remoteUpdatedAt ?? 0) <= existing.deletedAt) {
+        return existing.id
+      }
+      this.db
+        .prepare(
+          `UPDATE events SET title=@title, notes=@notes, color=@color, start_ts=@startTs, end_ts=@endTs,
+           all_day=@allDay, rrule_json=@rruleJson, reminder_min=@reminderMin, etag=@etag,
+           remote_updated_at=@remoteUpdatedAt, dirty=0, deleted_at=NULL, updated_at=@updatedAt
+           WHERE id=@id`
+        )
+        .run({
+          id: existing.id,
+          title: input.local.title,
+          notes: input.local.notes ?? null,
+          color: input.local.color,
+          startTs: input.local.startTs,
+          endTs: input.local.endTs,
+          allDay: input.local.allDay ? 1 : 0,
+          rruleJson: input.local.rrule ? JSON.stringify(input.local.rrule) : null,
+          reminderMin: input.local.reminderMin ?? null,
+          etag: input.etag ?? null,
+          remoteUpdatedAt: input.remoteUpdatedAt,
+          updatedAt: this.clock.now()
+        })
+      return existing.id
+    }
+
+    if (input.adoptLocalId) {
+      const local = this.getByIdIncludingDeleted(input.adoptLocalId)
+      if (local && !local.googleId) {
+        this.markSynced(input.adoptLocalId, {
+          calendarId: input.calendarId,
+          googleId: input.googleId,
+          etag: input.etag,
+          remoteUpdatedAt: input.remoteUpdatedAt
+        })
+        return input.adoptLocalId
+      }
+    }
+
+    const created = this.create(input.local, {
+      dirty: false,
+      calendarId: input.calendarId,
+      googleId: input.googleId,
+      etag: input.etag,
+      remoteUpdatedAt: input.remoteUpdatedAt
+    })
+    return created.id
+  }
+
+  /** Remote said the event is gone: hard-delete locally, cascading exceptions. */
+  deleteByGoogleId(calendarId: string, googleId: string): void {
+    this.db.prepare('DELETE FROM events WHERE calendar_id = ? AND google_id = ?').run(calendarId, googleId)
+  }
+
+  /** Disconnect: strip every event's Google identity and mark it dirty, so a later
+   *  reconnect re-pushes as new rather than PATCHing ids that may belong to another account. */
+  clearAllSyncIdentity(): void {
+    this.db.exec('UPDATE events SET google_id = NULL, etag = NULL, calendar_id = NULL, dirty = 1')
+    this.db.exec('UPDATE event_exceptions SET google_id = NULL, etag = NULL, dirty = 1')
+  }
+
+  // ---- exceptions / sync -----------------------------------------------------
+
+  listDirtyExceptions(limit = 500): SyncEventException[] {
+    const rows = this.db.prepare('SELECT * FROM event_exceptions WHERE dirty = 1 LIMIT ?').all(limit) as ExceptionRow[]
+    return rows.map(rowToException)
+  }
+
+  markExceptionSynced(
+    eventId: string,
+    occurrenceStartTs: number,
+    sync: { googleId: string; etag?: string; remoteUpdatedAt?: number }
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE event_exceptions SET google_id = ?, etag = ?, remote_updated_at = ?, dirty = 0
+         WHERE event_id = ? AND occurrence_start_ts = ?`
+      )
+      .run(sync.googleId, sync.etag ?? null, sync.remoteUpdatedAt ?? null, eventId, occurrenceStartTs)
+  }
+
+  findExceptionByGoogleId(googleId: string): SyncEventException | undefined {
+    const row = this.db.prepare('SELECT * FROM event_exceptions WHERE google_id = ?').get(googleId) as
+      | ExceptionRow
+      | undefined
+    return row ? rowToException(row) : undefined
+  }
+
+  upsertExceptionFromRemote(input: {
+    eventId: string
+    occurrenceStartTs: number
+    kind: 'skip' | 'override'
+    override?: EventException['override']
+    googleId: string
+    etag?: string
+    remoteUpdatedAt?: number
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO event_exceptions
+           (event_id, occurrence_start_ts, kind, override_json, google_id, etag, remote_updated_at, dirty)
+         VALUES (@eventId, @occurrenceStartTs, @kind, @overrideJson, @googleId, @etag, @remoteUpdatedAt, 0)
+         ON CONFLICT(event_id, occurrence_start_ts) DO UPDATE SET
+           kind=excluded.kind, override_json=excluded.override_json, google_id=excluded.google_id,
+           etag=excluded.etag, remote_updated_at=excluded.remote_updated_at, dirty=0`
+      )
+      .run({
+        eventId: input.eventId,
+        occurrenceStartTs: input.occurrenceStartTs,
+        kind: input.kind,
+        overrideJson: input.override ? JSON.stringify(input.override) : null,
+        googleId: input.googleId,
+        etag: input.etag ?? null,
+        remoteUpdatedAt: input.remoteUpdatedAt ?? null
+      })
   }
 }

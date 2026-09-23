@@ -1,9 +1,3 @@
-export interface Category {
-  id: string
-  name: string
-  color: string
-}
-
 export type RecurrenceFreq = 'daily' | 'weekly' | 'monthly' | 'yearly'
 
 export interface RecurrenceRule {
@@ -18,7 +12,7 @@ export interface EventRecord {
   id: string
   title: string
   notes?: string
-  categoryId: string
+  color: string
   startTs: number // epoch ms
   endTs: number // epoch ms
   allDay: boolean
@@ -40,7 +34,7 @@ export interface EventException {
   eventId: string
   occurrenceStartTs: number
   kind: ExceptionKind
-  override?: Partial<Pick<EventRecord, 'title' | 'notes' | 'startTs' | 'endTs' | 'categoryId'>>
+  override?: Partial<Pick<EventRecord, 'title' | 'notes' | 'startTs' | 'endTs' | 'color'>>
 }
 
 /** A single occurrence of an event, after recurrence expansion, ready to render. */
@@ -49,7 +43,7 @@ export interface Occurrence {
   occurrenceStartTs: number // the original (un-overridden) slot, used as the exception key
   title: string
   notes?: string
-  categoryId: string
+  color: string
   startTs: number
   endTs: number
   allDay: boolean

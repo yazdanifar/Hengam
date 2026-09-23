@@ -40,6 +40,7 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    container?.bridge.detach()
   })
 }
 
@@ -48,11 +49,14 @@ app.whenReady().then(() => {
   registerIpc(container)
   container.reminders.start()
   container.dayTicker.start()
+  container.sync.start()
   createWindow()
+  if (mainWindow) container.bridge.attach(mainWindow)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
     else mainWindow?.show()
+    if (mainWindow) container?.bridge.attach(mainWindow)
   })
 })
 
@@ -75,6 +79,9 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   container?.reminders.stop()
   container?.dayTicker.stop()
+  // Stop sync (which aborts any in-flight request) before closing the database — an
+  // in-flight write landing after db.close() would throw.
+  container?.sync.stop()
   try {
     container?.db.close()
   } catch {

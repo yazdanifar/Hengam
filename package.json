@@ -21,7 +21,13 @@
   "build": {
     "appId": "ir.hengam.app",
     "productName": "Hengam",
-    "files": ["out/**/*"],
+    "npmRebuild": false,
+    "files": [
+      "out/**/*",
+      "build/icon.png",
+      "build/icon-day.svg",
+      "src/shared/data/holidays/**/*.json"
+    ],
     "asarUnpack": ["**/node_modules/better-sqlite3/**"],
     "mac": {
       "identity": null,

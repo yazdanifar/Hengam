@@ -1,7 +1,31 @@
+# dependencies
 node_modules/
+
+# build output
 out/
 dist/
 build/icon.png
-*.log
-.DS_Store
+*.tsbuildinfo
+
+# test / QA artifacts
 coverage/
+playwright-report/
+test-results/
+.stryker-tmp/
+
+# secrets (OAuth client id/secret, etc.)
+.env
+.env.local
+*.pem
+
+# local runtime data (only relevant if ever pointed at the repo via HENGAM_DATA_DIR)
+*.db
+*.db-shm
+*.db-wal
+google.bin
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.log

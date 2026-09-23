@@ -1,0 +1,7 @@
+node_modules/
+out/
+dist/
+build/icon.png
+*.log
+.DS_Store
+coverage/

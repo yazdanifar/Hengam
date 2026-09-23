@@ -1,0 +1,63 @@
+{
+  "name": "hengam",
+  "version": "0.1.0",
+  "description": "هنگام — Persian (Jalali) daily planner for macOS",
+  "main": "out/main/index.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "icon": "node scripts/make-icon.mjs",
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "lint": "eslint . --ext .ts,.tsx",
+    "verify": "npm run typecheck && npm run test:coverage",
+    "build:mac": "npm run icon && npm run build && electron-builder --mac dmg --arm64"
+  },
+  "build": {
+    "appId": "ir.hengam.app",
+    "productName": "Hengam",
+    "files": ["out/**/*"],
+    "asarUnpack": ["**/node_modules/better-sqlite3/**"],
+    "mac": {
+      "identity": null,
+      "icon": "build/icon.png",
+      "target": [{ "target": "dmg", "arch": ["arm64"] }]
+    }
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "better-sqlite3": "^13.0.3",
+    "google-auth-library": "^9.14.1",
+    "googleapis": "^144.0.0",
+    "jalaali-js": "^1.2.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "rrule": "^2.8.1",
+    "vazirmatn": "^33.0.3",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@testing-library/jest-dom": "^6.5.0",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.7.4",
+    "@types/react": "^18.3.10",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@vitest/coverage-v8": "^2.1.1",
+    "electron": "^38.2.0",
+    "electron-builder": "^25.0.5",
+    "electron-vite": "^2.3.0",
+    "fast-check": "^3.22.0",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1"
+  }
+}

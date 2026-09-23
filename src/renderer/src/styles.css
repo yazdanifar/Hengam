@@ -1,0 +1,151 @@
+:root {
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --border: #e6e2db;
+  --text: #23201b;
+  --text-muted: #7a7568;
+  --accent: #0f9f94;
+  --holiday: #d3453a;
+  --today-bg: #fff6e0;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  font-family: 'Vazirmatn', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  direction: rtl;
+}
+
+button, input {
+  font-family: inherit;
+}
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.header .date-title {
+  font-weight: 700;
+  font-size: 16px;
+  margin-inline-end: auto;
+}
+
+.header .date-title .greg {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 13px;
+  margin-inline-start: 8px;
+}
+
+.view-switcher { display: flex; gap: 4px; }
+.view-switcher button, .nav-btn, .today-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.view-switcher button.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+.logo-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.logo-row img { width: 28px; height: 28px; }
+.logo-row .wordmark { font-weight: 800; font-size: 18px; }
+
+.mini-month { width: 100%; border-collapse: collapse; font-size: 12px; }
+.mini-month th { color: var(--text-muted); font-weight: 400; padding: 2px; }
+.mini-month td { text-align: center; padding: 4px 0; cursor: pointer; border-radius: 6px; }
+.mini-month td.holiday { color: var(--holiday); }
+.mini-month td.today { background: var(--today-bg); font-weight: 700; }
+.mini-month td.other-month { color: #c9c4b8; }
+
+.task-list { margin-top: 20px; }
+.task-list h3 { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+.task-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 13px; }
+.task-row.done label { text-decoration: line-through; color: var(--text-muted); }
+.task-add { display: flex; gap: 4px; margin-top: 8px; }
+.task-add input { flex: 1; border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 13px; }
+
+.view-body { flex: 1; overflow: auto; position: relative; }
+
+.time-grid { display: flex; }
+.time-gutter { width: 56px; flex-shrink: 0; }
+.time-gutter .slot { height: 48px; text-align: center; font-size: 11px; color: var(--text-muted); }
+.day-columns { flex: 1; display: flex; position: relative; }
+.day-col { flex: 1; position: relative; border-inline-start: 1px solid var(--border); }
+.day-col .hour-line { height: 48px; border-bottom: 1px solid var(--border); }
+.day-col.holiday { background: #fff5f4; }
+
+.event-box {
+  position: absolute;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: white;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,.15);
+}
+
+.week-header, .month-grid { }
+.week-header { display: flex; border-bottom: 1px solid var(--border); }
+.week-header .gutter { width: 56px; flex-shrink: 0; }
+.week-header .day-head { flex: 1; text-align: center; padding: 6px 0; font-size: 12px; }
+.week-header .day-head.holiday { color: var(--holiday); }
+.week-header .day-head.today { font-weight: 700; }
+
+.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 1fr; height: 100%; }
+.month-cell { border: 1px solid var(--border); padding: 4px; min-height: 90px; overflow: hidden; }
+.month-cell .day-num { font-size: 12px; margin-bottom: 4px; }
+.month-cell.holiday .day-num { color: var(--holiday); }
+.month-cell.other-month { opacity: .4; }
+.month-cell.today { background: var(--today-bg); }
+.month-chip { font-size: 10px; color: white; border-radius: 4px; padding: 1px 4px; margin-bottom: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.month-more { font-size: 10px; color: var(--text-muted); cursor: pointer; }
+
+.dialog-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.dialog { background: var(--surface); border-radius: 12px; padding: 20px; width: 380px; max-height: 80vh; overflow-y: auto; }
+.dialog h2 { margin-top: 0; font-size: 16px; }
+.field { margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 12px; color: var(--text-muted); }
+.field input, .field select, .field textarea {
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 13px;
+}
+.field-row { display: flex; gap: 8px; }
+.field-row .field { flex: 1; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.btn { border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-secondary { background: var(--border); }
+.error-text { color: var(--holiday); font-size: 12px; }

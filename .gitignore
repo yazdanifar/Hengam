@@ -16,6 +16,7 @@ test-results/
 # secrets (OAuth client id/secret, etc.)
 .env
 .env.local
+.env.*.local
 *.pem
 
 # local runtime data (only relevant if ever pointed at the repo via HENGAM_DATA_DIR)

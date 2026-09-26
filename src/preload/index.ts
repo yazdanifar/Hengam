@@ -16,20 +16,30 @@ function subscribe<K extends keyof MainToRendererEvents>(
 const api: HengamApi = {
   events: {
     range: (startTs, endTs) => ipcRenderer.invoke('events:range', startTs, endTs),
+    get: (id) => ipcRenderer.invoke('events:get', id),
     create: (input) => ipcRenderer.invoke('events:create', input),
     update: (input) => ipcRenderer.invoke('events:update', input),
     remove: (id, scope, occurrenceStartTs) => ipcRenderer.invoke('events:remove', id, scope, occurrenceStartTs),
     listExceptions: (eventId) => ipcRenderer.invoke('events:listExceptions', eventId)
   },
-  tasks: {
-    listForDate: (jdate) => ipcRenderer.invoke('tasks:listForDate', jdate),
-    create: (jdate, title) => ipcRenderer.invoke('tasks:create', jdate, title),
-    toggle: (id, done) => ipcRenderer.invoke('tasks:toggle', id, done),
-    remove: (id) => ipcRenderer.invoke('tasks:remove', id),
-    reorder: (jdate, orderedIds) => ipcRenderer.invoke('tasks:reorder', jdate, orderedIds)
-  },
   holidays: {
-    year: (jy) => ipcRenderer.invoke('holidays:year', jy)
+    year: (jy) => ipcRenderer.invoke('holidays:year', jy),
+    status: () => ipcRenderer.invoke('holidays:status'),
+    refreshNow: () => ipcRenderer.invoke('holidays:refreshNow'),
+    onStatus: (cb) => subscribe('holidays:status', cb),
+    onChanged: (cb) => subscribe('holidays:changed', cb)
+  },
+  notifications: {
+    list: () => ipcRenderer.invoke('notifications:list'),
+    markAllRead: () => ipcRenderer.invoke('notifications:markAllRead'),
+    dismiss: (id) => ipcRenderer.invoke('notifications:dismiss', id),
+    clearAll: () => ipcRenderer.invoke('notifications:clearAll'),
+    onChanged: (cb) => subscribe('notifications:changed', cb)
+  },
+  settings: {
+    getAlerts: () => ipcRenderer.invoke('settings:getAlerts'),
+    setAlerts: (patch) => ipcRenderer.invoke('settings:setAlerts', patch),
+    onOpenRequest: (cb) => subscribe('settings:open', (p) => cb(p.section))
   },
   google: {
     status: () => ipcRenderer.invoke('google:status'),

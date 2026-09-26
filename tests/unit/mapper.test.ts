@@ -15,12 +15,33 @@ describe('mapper: round trips', () => {
 
   it('an event with a reminder and a color', () => {
     const start = toGregorian(1405, 6, 31).getTime() + 9 * 3600_000
-    const ev: LocalEventLike = { title: 'جلسه', startTs: start, endTs: start + 3600_000, allDay: false, reminderMin: 15, colorId: '5' }
+    const ev: LocalEventLike = { title: 'جلسه', startTs: start, endTs: start + 3600_000, allDay: false, reminders: [15], colorId: '5' }
     const g = toGoogleEvent(ev)
     const back = fromGoogleEvent(g)
-    expect(back.reminderMin).toBe(15)
+    expect(back.reminders).toEqual([15])
     expect(back.colorId).toBe('5')
     expect(back.startTs).toBe(start)
+  })
+
+  it('several reminders survive the round trip, sorted and de-duplicated', () => {
+    const start = toGregorian(1405, 6, 31).getTime() + 9 * 3600_000
+    const ev: LocalEventLike = {
+      title: 'جلسه',
+      startTs: start,
+      endTs: start + 3600_000,
+      allDay: false,
+      reminders: [60, 10, 60, 1440]
+    }
+    const back = fromGoogleEvent(toGoogleEvent(ev))
+    expect(back.reminders).toEqual([10, 60, 1440])
+  })
+
+  it('a non-popup override coming back from Google (e.g. email) is ignored', () => {
+    const start = toGregorian(1405, 6, 31).getTime() + 9 * 3600_000
+    const g = toGoogleEvent({ title: 'جلسه', startTs: start, endTs: start + 3600_000, allDay: false })
+    g.reminders = { useDefault: false, overrides: [{ method: 'email', minutes: 30 }, { method: 'popup', minutes: 5 }] }
+    const back = fromGoogleEvent(g)
+    expect(back.reminders).toEqual([5])
   })
 
   it('a weekly rule maps to RRULE and back', () => {

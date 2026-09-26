@@ -12,6 +12,7 @@ function baseEvent(overrides: Partial<EventRecord> = {}): EventRecord {
     startTs: start,
     endTs: start + 3600_000,
     allDay: false,
+    reminders: [],
     createdAt: 0,
     updatedAt: 0,
     dirty: false,

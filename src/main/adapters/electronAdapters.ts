@@ -1,7 +1,18 @@
 import { app, Notification, powerMonitor, shell, Tray, Menu, nativeImage, safeStorage } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { BrowserLauncher, DockPort, HolidayFeed, Notifier, PowerEvents, SecretStore, TrayPort } from '../ports'
+import { TimeIrClient } from '@shared/timeIrHolidays'
+import type {
+  BrowserLauncher,
+  DockPort,
+  HolidayFeed,
+  LoginItemPort,
+  Notifier,
+  PowerEvents,
+  SecretStore,
+  TrayMenuItem,
+  TrayPort
+} from '../ports'
 
 export class ElectronNotifier implements Notifier {
   show(title: string, body: string, onClick?: () => void): void {
@@ -39,20 +50,40 @@ export class ElectronDock implements DockPort {
 export class ElectronTray implements TrayPort {
   private tray: Tray | undefined
 
-  constructor(iconPng: Buffer) {
-    this.tray = new Tray(nativeImage.createFromBuffer(iconPng).resize({ width: 18, height: 18 }))
+  constructor() {
+    // No icon: the menu bar shows just the date title.
+    this.tray = new Tray(nativeImage.createEmpty())
   }
 
   setTitle(title: string): void {
     this.tray?.setTitle(title)
   }
 
-  setMenuItems(items: { label: string; onClick?: () => void; type?: 'separator' }[]): void {
+  setMenuItems(items: TrayMenuItem[]): void {
     this.tray?.setContextMenu(
       Menu.buildFromTemplate(
-        items.map((i) => (i.type === 'separator' ? { type: 'separator' } : { label: i.label, click: i.onClick }))
+        items.map((i) =>
+          i.type === 'separator'
+            ? { type: 'separator' }
+            : i.type === 'checkbox'
+              ? { type: 'checkbox', label: i.label, checked: i.checked, click: i.onClick }
+              : { label: i.label, click: i.onClick }
+        )
       )
     )
+  }
+}
+
+/** Registers/unregisters Hengam as a macOS login item. No-op on other platforms. */
+export class ElectronLoginItem implements LoginItemPort {
+  isEnabled(): boolean {
+    if (process.platform !== 'darwin') return false
+    return app.getLoginItemSettings().openAtLogin
+  }
+
+  setEnabled(on: boolean): void {
+    if (process.platform !== 'darwin') return
+    app.setLoginItemSettings({ openAtLogin: on })
   }
 }
 
@@ -94,11 +125,11 @@ export class KeychainSecretStore implements SecretStore {
   }
 }
 
-export class GithubHolidayFeed implements HolidayFeed {
+/** Fetches holidays directly from time.ir; see @shared/timeIrHolidays for how. */
+export class TimeIrHolidayFeed implements HolidayFeed {
+  private client = new TimeIrClient()
+
   async fetchYear(jy: number): Promise<unknown> {
-    const url = `https://raw.githubusercontent.com/hasan-ahani/shamsi-holidays/main/holidays/${jy}.json`
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`holiday feed: ${res.status}`)
-    return res.json()
+    return this.client.fetchYear(jy)
   }
 }

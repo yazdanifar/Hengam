@@ -37,9 +37,22 @@ export interface DockPort {
   setIcon(pngBuffer: Buffer): void
 }
 
+export interface TrayMenuItem {
+  label: string
+  onClick?: () => void
+  type?: 'separator' | 'checkbox'
+  checked?: boolean
+}
+
 export interface TrayPort {
   setTitle(title: string): void
-  setMenuItems(items: { label: string; onClick?: () => void; type?: 'separator' }[]): void
+  setMenuItems(items: TrayMenuItem[]): void
+}
+
+/** macOS/Windows "open at login" registration. No-op on other platforms. */
+export interface LoginItemPort {
+  isEnabled(): boolean
+  setEnabled(on: boolean): void
 }
 
 export interface HolidayFeed {
@@ -76,6 +89,7 @@ export interface Ports {
   power: PowerEvents
   dock: DockPort
   tray: TrayPort
+  loginItem: LoginItemPort
   holidayFeed: HolidayFeed
   loopback: LoopbackServerPort
   bridge: RendererBridge

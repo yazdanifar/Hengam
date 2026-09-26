@@ -94,13 +94,6 @@ button, input, select, textarea {
 .mini-month td.today { background: var(--today-bg); font-weight: 700; }
 .mini-month td.other-month { color: #c9c4b8; }
 
-.task-list { margin-top: 20px; }
-.task-list h3 { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
-.task-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 13px; }
-.task-row.done label { text-decoration: line-through; color: var(--text-muted); }
-.task-add { display: flex; gap: 4px; margin-top: 8px; }
-.task-add input { flex: 1; border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 13px; }
-
 /* Non-scrolling: the day/week header stays put, only the hour grid below scrolls. */
 .view-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; min-height: 0; }
 
@@ -160,6 +153,15 @@ button, input, select, textarea {
 }
 .field-row { display: flex; gap: 8px; }
 .field-row .field { flex: 1; }
+.reminder-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 13px; }
+.reminder-row .reminder-value { width: 56px; flex: none; }
+.reminder-row .reminder-unit { width: 92px; flex: none; }
+.reminder-row span { color: var(--text-muted); white-space: nowrap; }
+.reminder-row .reminder-remove {
+  border: none; background: transparent; color: var(--text-muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px;
+  margin-inline-start: auto;
+}
+.reminder-add { margin-top: 2px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .btn { border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
 .btn-primary { background: var(--accent); color: white; }
@@ -168,18 +170,37 @@ button, input, select, textarea {
 .btn:disabled { opacity: .5; cursor: default; }
 .error-text { color: var(--holiday); font-size: 12px; }
 
-/* Sync settings dialog. .dialog-wide is a modifier — widening .dialog itself would
-   silently reflow EventDialog. */
-.dialog.dialog-wide { width: 460px; }
+/* ---- Settings dialog ------------------------------------------------------------ */
+/* .dialog-settings is a modifier — widening .dialog itself would silently reflow EventDialog. */
+.dialog.dialog-settings { width: 520px; padding-bottom: 16px; }
 
-.settings-section { margin-bottom: 20px; }
-.settings-section h3 { font-size: 13px; color: var(--text-muted); margin: 12px 0 8px; font-weight: 700; }
+.settings-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 -20px 16px; padding: 0 20px; }
+.settings-tabs [role='tab'] {
+  position: relative; display: inline-flex; align-items: center; gap: 6px;
+  border: none; background: none; cursor: pointer;
+  padding: 8px 12px; margin-bottom: -1px;
+  font-size: 13px; color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+}
+.settings-tabs [role='tab']:hover { color: var(--text); }
+.settings-tabs [role='tab'].active { color: var(--text); font-weight: 700; border-bottom-color: var(--accent); }
+.settings-tabs [role='tab']:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px 6px 0 0; }
+.tab-alert-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--holiday); }
+
+.settings-panel { min-height: 240px; }
+.settings-panel h3 { font-size: 13px; color: var(--text-muted); margin: 18px 0 8px; font-weight: 700; }
 .settings-note { font-size: 12px; color: var(--text-muted); line-height: 1.7; margin-bottom: 12px; }
 
 .account-row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 12px; }
 .account-row .email { unicode-bidi: isolate; direction: ltr; color: var(--text-muted); font-size: 12px; }
+.account-row .btn { margin-inline-start: auto; }
+.confirm-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 12px; margin-bottom: 12px; border-radius: 8px; background: #fdf1ef;
+}
+.confirm-row .settings-note { margin: 0; flex: 1; color: var(--text); }
 
-.cal-list { display: flex; flex-direction: column; gap: 2px; }
+.cal-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
 .cal-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; }
 .cal-row label { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
 .cal-row input[type='radio']:disabled + span { opacity: .4; }
@@ -187,26 +208,128 @@ button, input, select, textarea {
 
 .empty-state { font-size: 12px; color: var(--text-muted); text-align: center; padding: 16px 0; }
 
-.status-line { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.status-row { display: flex; align-items: center; gap: 12px; }
+.status-row .status-line { flex: 1; }
+.status-line { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.status-row .status-line { margin-top: 0; }
 .status-line.is-error { color: var(--holiday); }
 
-/* Sized to match .nav-btn/.today-btn's rendered height (13px font + 6px*2 padding + border)
-   so it sits level with its header siblings instead of floating as an undersized dot. */
-.sync-pill {
-  display: inline-flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-  width: 30px; height: 30px; border-radius: 50%; box-sizing: border-box;
-  cursor: default;
-  border: 1px solid var(--border); background: var(--surface); color: var(--accent);
+.status-grid { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 12px; font-size: 13px; }
+.status-grid dt { color: var(--text-muted); }
+.status-grid dd { margin: 0; }
+.status-callout {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; margin-bottom: 12px; border-radius: 8px;
+  background: #fdf1ef; color: var(--text); font-size: 12px; line-height: 1.7;
 }
-.sync-pill svg { width: 16px; height: 16px; display: block; }
-.sync-pill-error { color: var(--holiday); border-color: var(--holiday); cursor: pointer; }
-.sync-pill-syncing svg { animation: sync-pill-spin 1s linear infinite; transform-origin: center; }
-@keyframes sync-pill-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .sync-pill-syncing svg { animation: none; } }
+.status-callout svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--holiday); margin-top: 2px; }
 
-.header .settings-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; padding: 0; box-sizing: border-box;
-  font-size: 15px; line-height: 1;
+.threshold-field { border: none; padding: 14px 0 0; margin: 18px 0 0; border-top: 1px solid var(--border); min-width: 0; }
+.threshold-field legend { font-size: 13px; color: var(--text-muted); font-weight: 700; padding: 0; margin-bottom: 8px; float: right; width: 100%; }
+.threshold-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; clear: both; }
+.threshold-row input, .threshold-row select { border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font-size: 13px; background: var(--surface); }
+.threshold-row .threshold-value { width: 64px; }
+.threshold-row input[aria-invalid='true'] { border-color: var(--holiday); }
+.threshold-field .error-text { margin-top: 6px; }
+
+/* ---- Buttons ---------------------------------------------------------------------- */
+.btn-small { padding: 5px 10px; font-size: 12px; }
+.btn-danger-quiet { background: none; color: var(--holiday); border: 1px solid transparent; }
+.btn-danger-quiet:hover { border-color: var(--holiday); }
+.link-btn { border: none; background: none; padding: 2px 4px; font-size: 12px; color: var(--accent); cursor: pointer; border-radius: 4px; }
+.link-btn:hover { text-decoration: underline; }
+.btn:focus-visible, .link-btn:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Round icon buttons in the header (bell, settings). Sized to match .nav-btn/.today-btn's
+   rendered height so they sit level with their header siblings. */
+.icon-btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+  cursor: pointer;
 }
+.icon-btn:hover { color: var(--text); border-color: #cfc9be; }
+.icon-btn svg { width: 16px; height: 16px; display: block; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ---- Notification bell + panel ----------------------------------------------------- */
+.bell-wrap { position: relative; }
+.bell-btn[aria-expanded='true'] { color: var(--accent); border-color: var(--accent); }
+.bell-btn.has-alert { color: var(--holiday); border-color: #f0c4bf; }
+.bell-badge {
+  position: absolute; top: -5px; left: -5px;
+  min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  background: var(--holiday); color: white; border: 2px solid var(--surface);
+  font-size: 10px; font-weight: 700; line-height: 13px; text-align: center;
+}
+.bell-dot {
+  position: absolute; top: 1px; left: 1px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--holiday); border: 2px solid var(--surface);
+}
+
+/* In RTL the bell sits at the header's left end, so the panel hangs from its left edge. */
+.notif-panel {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 40;
+  width: 360px; max-height: min(520px, 75vh); overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(35, 32, 27, .14), 0 2px 6px rgba(35, 32, 27, .06);
+}
+.notif-panel:focus { outline: none; }
+.notif-panel-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.notif-panel-head h2 { margin: 0; font-size: 14px; }
+
+.notif-attention { padding: 12px 16px 4px; }
+.notif-attention h3 { margin: 0 0 8px; font-size: 11px; font-weight: 700; color: var(--text-muted); }
+.alert-card {
+  display: flex; gap: 10px; padding: 12px; margin-bottom: 8px;
+  border-radius: 10px; background: #fdf1ef; border: 1px solid #f5d5d1;
+}
+.alert-card-icon { color: var(--holiday); flex-shrink: 0; }
+.alert-card-icon svg { width: 18px; height: 18px; display: block; margin-top: 1px; }
+.alert-card-body { flex: 1; min-width: 0; }
+.alert-card-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+.alert-card-text { font-size: 12px; line-height: 1.7; }
+.alert-card-reason { font-size: 12px; color: var(--text-muted); line-height: 1.7; }
+.alert-card-actions { display: flex; gap: 6px; margin-top: 8px; }
+
+.notif-list { list-style: none; margin: 0; padding: 4px 0; }
+.notif-item { position: relative; display: flex; align-items: flex-start; }
+.notif-item + .notif-item { border-top: 1px solid #f1eee9; }
+.notif-item.is-new { background: #f1faf9; }
+.notif-item.is-new::before {
+  content: ''; position: absolute; top: 18px; right: 6px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+}
+.notif-main {
+  flex: 1; min-width: 0; display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 16px; text-align: start; font: inherit; color: inherit;
+  border: none; background: none;
+}
+button.notif-main { cursor: pointer; }
+button.notif-main:hover { background: rgba(35, 32, 27, .03); }
+button.notif-main:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.notif-icon { flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; }
+.notif-icon svg { width: 16px; height: 16px; }
+.notif-icon-reminder { background: #e3f4f2; color: var(--accent); }
+.notif-icon-resolved { background: #eef6e9; color: #4d8a2e; }
+.notif-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.notif-title { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.notif-body { font-size: 12px; color: var(--text); opacity: .85; }
+.notif-time { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.notif-dismiss { border: none; background: none; width: 26px; height: 26px; margin: 8px 0 0 8px; opacity: 0; }
+.notif-item:hover .notif-dismiss, .notif-dismiss:focus-visible { opacity: 1; }
+.notif-dismiss svg { width: 13px; height: 13px; }
+
+.notif-empty { padding: 32px 24px 36px; text-align: center; color: var(--text-muted); }
+.notif-empty svg { width: 28px; height: 28px; opacity: .45; }
+.notif-empty p { margin: 8px 0 0; font-size: 13px; color: var(--text); }
+.notif-empty .notif-empty-hint { font-size: 12px; color: var(--text-muted); line-height: 1.7; }

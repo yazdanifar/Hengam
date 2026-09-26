@@ -12,13 +12,14 @@ let container: Container | null = null
 const keepInTray = true
 let isQuitting = false
 
-function createWindow(): void {
+function createWindow(show: boolean = true): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 960,
     minHeight: 640,
     title: 'هنگام',
+    show,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -44,20 +45,32 @@ function createWindow(): void {
   })
 }
 
+// Shows the window, creating it if it no longer exists (a login-item launch creates it
+// hidden, so usually this just reveals it). Passed into the container so the
+// tray's "نمایش هنگام" item and the Dock's activate event share this one path.
+function showWindow(): void {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow(true)
+  else mainWindow?.show()
+  if (mainWindow) container?.bridge.attach(mainWindow)
+}
+
 app.whenReady().then(() => {
-  container = buildContainer()
+  container = buildContainer({ showWindow })
   registerIpc(container)
   container.reminders.start()
   container.dayTicker.start()
   container.sync.start()
-  createWindow()
+  container.holidays.start()
+  container.alerts.start()
+  // Login items launch in the background: the Dock icon and tray still work, but no
+  // window pops up unasked-for (App Store guideline 2.4.5(iii) requires this).
+  const openedAtLogin = process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin
+  createWindow(!openedAtLogin)
+  // Attach even when hidden: its renderer is live, and must keep receiving sync-status
+  // and data-changed pushes so it isn't stale when the user first opens it.
   if (mainWindow) container.bridge.attach(mainWindow)
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-    else mainWindow?.show()
-    if (mainWindow) container?.bridge.attach(mainWindow)
-  })
+  app.on('activate', () => showWindow())
 })
 
 // Fired before any window starts closing, for every quit path: Cmd+Q, the Dock's
@@ -79,6 +92,8 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   container?.reminders.stop()
   container?.dayTicker.stop()
+  container?.holidays.stop()
+  container?.alerts.stop()
   // Stop sync (which aborts any in-flight request) before closing the database — an
   // in-flight write landing after db.close() would throw.
   container?.sync.stop()

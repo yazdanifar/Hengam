@@ -51,7 +51,14 @@ export class SyncService {
     private bridge: RendererBridge,
     private configured: boolean
   ) {
-    this.status = { phase: configured ? 'idle' : 'disabled', connected: false, configured }
+    // Both survive restarts, so "last synced" and a failure's age don't reset on relaunch.
+    this.status = {
+      phase: configured ? 'idle' : 'disabled',
+      connected: false,
+      configured,
+      lastSuccessAt: meta.getNumber('sync.lastSuccessAt'),
+      failingSince: meta.getNumber('sync.failingSince')
+    }
   }
 
   start(): void {
@@ -84,6 +91,12 @@ export class SyncService {
     return this.status
   }
 
+  /** Ends the current failure episode, if any; the next setStatus carries it to the renderer. */
+  private clearFailure(): void {
+    this.meta.delete('sync.failingSince')
+    this.status = { ...this.status, failingSince: undefined }
+  }
+
   private setStatus(patch: Partial<SyncStatus>): void {
     this.status = { ...this.status, ...patch }
     this.bridge.send('sync:status', this.status)
@@ -111,11 +124,14 @@ export class SyncService {
     }
     const connected = await this.auth.isConnected()
     if (!connected) {
+      // Nothing to sync is not a failure: an old failure episode ends here.
+      this.clearFailure()
       this.setStatus({ phase: 'idle', connected: false, errorCode: undefined })
       return this.status
     }
     const enabled = this.calendars.listEnabled()
     if (enabled.length === 0) {
+      this.clearFailure()
       this.setStatus({ phase: 'idle', connected: true, errorCode: undefined })
       return this.status
     }
@@ -130,11 +146,14 @@ export class SyncService {
       pushed = await this.pushAll(signal)
       pulled = await this.pullAll(enabled, signal)
       const email = await this.auth.getEmail()
+      const lastSuccessAt = this.clock.now()
+      this.meta.setNumber('sync.lastSuccessAt', lastSuccessAt)
+      this.clearFailure()
       this.setStatus({
         phase: 'idle',
         connected: true,
         email,
-        lastSuccessAt: this.clock.now(),
+        lastSuccessAt,
         errorCode: undefined,
         progress: { pushed, pulled }
       })
@@ -143,7 +162,9 @@ export class SyncService {
       const code = errorCodeOf(err)
       console.error('[sync] run failed', err)
       this.meta.set('sync.lastErrorCode', code)
-      this.setStatus({ phase: 'error', errorCode: code, progress: { pushed, pulled } })
+      const failingSince = this.status.failingSince ?? this.clock.now()
+      this.meta.setNumber('sync.failingSince', failingSince)
+      this.setStatus({ phase: 'error', errorCode: code, failingSince, progress: { pushed, pulled } })
     } finally {
       this.abort = undefined
     }
@@ -187,6 +208,7 @@ export class SyncService {
     this.calendars.clearAll()
     this.meta.delete('sync.lastSuccessAt')
     this.meta.delete('sync.lastErrorCode')
+    this.clearFailure()
     // A later reconnect must re-push everything as new rather than PATCH ids that may
     // belong to a different account. Local events themselves are never deleted.
     this.events.clearAllSyncIdentity()
@@ -245,7 +267,7 @@ export class SyncService {
           endTs: row.endTs,
           allDay: row.allDay,
           rrule: row.rrule,
-          reminderMin: row.reminderMin,
+          reminders: row.reminders,
           colorId
         })
         body.extendedProperties = {
@@ -330,7 +352,7 @@ export class SyncService {
         googleId,
         etag: remote.etag,
         remoteUpdatedAt: remoteUpdated,
-        local: { title: mapped.title, notes: mapped.notes, color: local.color, startTs: mapped.startTs, endTs: mapped.endTs, allDay: mapped.allDay, rrule: mapped.rrule, reminderMin: mapped.reminderMin }
+        local: { title: mapped.title, notes: mapped.notes, color: local.color, startTs: mapped.startTs, endTs: mapped.endTs, allDay: mapped.allDay, rrule: mapped.rrule, reminders: mapped.reminders }
       })
     } else {
       const updated = await this.client.patchEvent(calendarId, googleId, toGoogleEvent(local), undefined, signal)
@@ -462,7 +484,7 @@ export class SyncService {
           endTs: mapped.endTs,
           allDay: mapped.allDay,
           rrule: mapped.rrule,
-          reminderMin: mapped.reminderMin
+          reminders: mapped.reminders
         },
         adoptLocalId: hengamId
       })

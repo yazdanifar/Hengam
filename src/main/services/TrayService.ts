@@ -3,7 +3,7 @@ import { getDayInfo } from '@shared/holidays'
 import { MONTH_NAMES, WEEKDAY_NAMES, weekdayIndex, type JalaliDate } from '@shared/jalali'
 import type { Occurrence } from '@shared/types'
 import type { HolidaySource } from '@shared/holidays'
-import type { TrayPort } from '../ports'
+import type { TrayMenuItem, TrayPort } from '../ports'
 
 export interface TrayCallbacks {
   onShowWindow(): void
@@ -11,6 +11,8 @@ export interface TrayCallbacks {
   onSyncNow?(): void
   onQuit(): void
   onOpenEvent(occ: Occurrence): void
+  isOpenAtLogin(): boolean
+  onToggleOpenAtLogin(): void
 }
 
 export class TrayService {
@@ -27,7 +29,7 @@ export class TrayService {
     const info = getDayInfo(day, this.holidays)
     const header = `${weekdayName} ${toFaDigits(day.jd)} ${MONTH_NAMES[day.jm - 1]} ${toFaDigits(day.jy)}`
 
-    const items: { label: string; onClick?: () => void; type?: 'separator' }[] = [
+    const items: TrayMenuItem[] = [
       { label: header },
       ...info.events.map((e) => ({ label: `${e.isHoliday ? '🔴 ' : ''}${e.title}` })),
       { type: 'separator' as const, label: '' },
@@ -41,6 +43,13 @@ export class TrayService {
       ...(googleConnected && this.callbacks.onSyncNow
         ? [{ label: 'همگام‌سازی', onClick: this.callbacks.onSyncNow }]
         : []),
+      { type: 'separator' as const, label: '' },
+      {
+        label: 'اجرا هنگام ورود به سیستم',
+        type: 'checkbox' as const,
+        checked: this.callbacks.isOpenAtLogin(),
+        onClick: this.callbacks.onToggleOpenAtLogin
+      },
       { type: 'separator' as const, label: '' },
       { label: 'خروج', onClick: this.callbacks.onQuit }
     ]

@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { expandOccurrences } from '@shared/recurrence'
+import { normalizeReminders } from '@shared/reminders'
 import type { EventException, EventRecord, Occurrence, RecurrenceRule } from '@shared/types'
 import type { Clock } from '../ports'
 
@@ -13,7 +14,7 @@ interface EventRow {
   end_ts: number
   all_day: number
   rrule_json: string | null
-  reminder_min: number | null
+  reminders_json: string | null
   created_at: number
   updated_at: number
   calendar_id: string | null
@@ -34,7 +35,7 @@ function rowToEvent(row: EventRow): EventRecord {
     endTs: row.end_ts,
     allDay: !!row.all_day,
     rrule: row.rrule_json ? (JSON.parse(row.rrule_json) as RecurrenceRule) : undefined,
-    reminderMin: row.reminder_min ?? undefined,
+    reminders: row.reminders_json ? (JSON.parse(row.reminders_json) as number[]) : [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     calendarId: row.calendar_id ?? undefined,
@@ -53,7 +54,7 @@ export interface CreateEventInput {
   endTs: number
   allDay: boolean
   rrule?: RecurrenceRule
-  reminderMin?: number
+  reminders?: number[]
 }
 
 export interface CreateEventOpts {
@@ -131,7 +132,7 @@ export class EventsRepo {
       endTs: input.endTs,
       allDay: input.allDay,
       rrule: input.rrule,
-      reminderMin: input.reminderMin,
+      reminders: normalizeReminders(input.reminders ?? []),
       createdAt: now,
       updatedAt: now,
       calendarId: opts.calendarId,
@@ -141,9 +142,9 @@ export class EventsRepo {
     }
     this.db
       .prepare(
-        `INSERT INTO events (id, title, notes, color, start_ts, end_ts, all_day, rrule_json, reminder_min,
+        `INSERT INTO events (id, title, notes, color, start_ts, end_ts, all_day, rrule_json, reminders_json,
                               created_at, updated_at, calendar_id, google_id, etag, dirty, remote_updated_at)
-         VALUES (@id, @title, @notes, @color, @startTs, @endTs, @allDay, @rruleJson, @reminderMin,
+         VALUES (@id, @title, @notes, @color, @startTs, @endTs, @allDay, @rruleJson, @remindersJson,
                  @createdAt, @updatedAt, @calendarId, @googleId, @etag, @dirty, @remoteUpdatedAt)`
       )
       .run({
@@ -155,7 +156,7 @@ export class EventsRepo {
         endTs: record.endTs,
         allDay: record.allDay ? 1 : 0,
         rruleJson: record.rrule ? JSON.stringify(record.rrule) : null,
-        reminderMin: record.reminderMin ?? null,
+        remindersJson: record.reminders.length ? JSON.stringify(record.reminders) : null,
         createdAt: now,
         updatedAt: now,
         calendarId: opts.calendarId ?? null,
@@ -184,11 +185,11 @@ export class EventsRepo {
     const existing = this.getById(id)
     if (!existing) return
     const now = this.clock.now()
-    const merged = { ...existing, ...patch }
+    const merged = { ...existing, ...patch, reminders: normalizeReminders(patch.reminders ?? existing.reminders) }
     this.db
       .prepare(
         `UPDATE events SET title=@title, notes=@notes, color=@color, start_ts=@startTs, end_ts=@endTs,
-         all_day=@allDay, rrule_json=@rruleJson, reminder_min=@reminderMin, updated_at=@updatedAt, dirty=1
+         all_day=@allDay, rrule_json=@rruleJson, reminders_json=@remindersJson, updated_at=@updatedAt, dirty=1
          WHERE id=@id`
       )
       .run({
@@ -200,9 +201,23 @@ export class EventsRepo {
         endTs: merged.endTs,
         allDay: merged.allDay ? 1 : 0,
         rruleJson: merged.rrule ? JSON.stringify(merged.rrule) : null,
-        reminderMin: merged.reminderMin ?? null,
+        remindersJson: merged.reminders.length ? JSON.stringify(merged.reminders) : null,
         updatedAt: now
       })
+    this.rearmRemindersIfRescheduled(existing, merged)
+  }
+
+  /** A changed start time or reminder list changes when reminders should fire; clears any
+   *  past firing so it can fire again at the new time(s). A pure rename/color/notes
+   *  change must not re-notify. */
+  private rearmRemindersIfRescheduled(
+    before: Pick<EventRecord, 'id' | 'startTs' | 'reminders'>,
+    after: { startTs: number; reminders: number[] }
+  ): void {
+    const remindersChanged = JSON.stringify(after.reminders) !== JSON.stringify(before.reminders)
+    if (after.startTs !== before.startTs || remindersChanged) {
+      this.db.prepare('DELETE FROM fired_reminders WHERE event_id = ?').run(before.id)
+    }
   }
 
   /** Soft-delete: kept until pushed to Google, then purged by the sync engine. */
@@ -216,6 +231,12 @@ export class EventsRepo {
 
   addException(ex: EventException): void {
     const tx = this.db.transaction((e: EventException) => {
+      const prior = this.db
+        .prepare('SELECT override_json FROM event_exceptions WHERE event_id = ? AND occurrence_start_ts = ?')
+        .get(e.eventId, e.occurrenceStartTs) as { override_json: string | null } | undefined
+      const priorStart =
+        (prior?.override_json ? (JSON.parse(prior.override_json) as EventException['override']) : undefined)
+          ?.startTs ?? e.occurrenceStartTs
       this.db
         .prepare(
           `INSERT INTO event_exceptions (event_id, occurrence_start_ts, kind, override_json, dirty)
@@ -234,6 +255,13 @@ export class EventsRepo {
       // the parent (there is no real RRULE to attach an EXDATE to), so the parent must be
       // re-pushed whenever such a skip is added. 'override' exceptions are their own Google
       // resource and don't need the parent touched.
+      // Moving one occurrence re-arms that occurrence's reminders at its new time.
+      if (e.kind === 'override' && (e.override?.startTs ?? e.occurrenceStartTs) !== priorStart) {
+        this.db
+          .prepare('DELETE FROM fired_reminders WHERE event_id = ? AND occurrence_start_ts = ?')
+          .run(e.eventId, e.occurrenceStartTs)
+      }
+
       if (e.kind === 'skip') {
         const parent = this.getById(e.eventId)
         if (parent?.rrule && (parent.rrule.freq === 'monthly' || parent.rrule.freq === 'yearly')) {
@@ -317,10 +345,11 @@ export class EventsRepo {
       if (existing.deletedAt && (input.remoteUpdatedAt ?? 0) <= existing.deletedAt) {
         return existing.id
       }
+      const remoteReminders = normalizeReminders(input.local.reminders ?? [])
       this.db
         .prepare(
           `UPDATE events SET title=@title, notes=@notes, color=@color, start_ts=@startTs, end_ts=@endTs,
-           all_day=@allDay, rrule_json=@rruleJson, reminder_min=@reminderMin, etag=@etag,
+           all_day=@allDay, rrule_json=@rruleJson, reminders_json=@remindersJson, etag=@etag,
            remote_updated_at=@remoteUpdatedAt, dirty=0, deleted_at=NULL, updated_at=@updatedAt
            WHERE id=@id`
         )
@@ -333,11 +362,12 @@ export class EventsRepo {
           endTs: input.local.endTs,
           allDay: input.local.allDay ? 1 : 0,
           rruleJson: input.local.rrule ? JSON.stringify(input.local.rrule) : null,
-          reminderMin: input.local.reminderMin ?? null,
+          remindersJson: remoteReminders.length ? JSON.stringify(remoteReminders) : null,
           etag: input.etag ?? null,
           remoteUpdatedAt: input.remoteUpdatedAt,
           updatedAt: this.clock.now()
         })
+      this.rearmRemindersIfRescheduled(existing, { startTs: input.local.startTs, reminders: remoteReminders })
       return existing.id
     }
 

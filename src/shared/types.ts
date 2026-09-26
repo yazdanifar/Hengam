@@ -17,7 +17,9 @@ export interface EventRecord {
   endTs: number // epoch ms
   allDay: boolean
   rrule?: RecurrenceRule
-  reminderMin?: number
+  /** Minutes before the start each notification fires. Sorted ascending, no duplicates,
+   *  empty when the event has no reminders. */
+  reminders: number[]
   createdAt: number
   updatedAt: number
   // sync bookkeeping (Google Calendar) — present even before sync ships, per the DI/testability plan
@@ -48,14 +50,6 @@ export interface Occurrence {
   endTs: number
   allDay: boolean
   isRecurring: boolean
-}
-
-export interface Task {
-  id: string
-  jdate: string // 'YYYY-MM-DD' in Jalali
-  title: string
-  done: boolean
-  sort: number
 }
 
 export interface HolidayEvent {

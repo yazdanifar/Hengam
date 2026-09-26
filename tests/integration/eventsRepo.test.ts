@@ -39,6 +39,53 @@ describe('EventsRepo', () => {
     expect(loaded?.dirty).toBe(true)
   })
 
+  it('clears fired_reminders when startTs or the reminder list changes, not on a plain rename', () => {
+    const ev = repo.create({
+      title: 'یادآوری',
+      color: '#3b82f6',
+      startTs: 5000,
+      endTs: 6000,
+      allDay: false,
+      reminders: [10]
+    })
+    const markFired = () =>
+      db
+        .prepare('INSERT INTO fired_reminders (event_id, occurrence_start_ts, minutes_before) VALUES (?, ?, ?)')
+        .run(ev.id, ev.startTs, 10)
+    const fired = () =>
+      db.prepare('SELECT 1 FROM fired_reminders WHERE event_id = ?').get(ev.id) !== undefined
+
+    markFired()
+    repo.update(ev.id, { title: 'یادآوری تغییر یافته' })
+    expect(fired()).toBe(true) // a rename alone must not re-arm the reminder
+
+    repo.update(ev.id, { reminders: [60] })
+    expect(fired()).toBe(false) // a changed reminder list must re-arm it
+
+    markFired()
+    repo.update(ev.id, { startTs: 9000, endTs: 10000 })
+    expect(fired()).toBe(false) // a moved start time must re-arm it
+  })
+
+  it('reordering the reminder list without changing its values does not re-arm', () => {
+    const ev = repo.create({
+      title: 'چند اعلان',
+      color: '#3b82f6',
+      startTs: 5000,
+      endTs: 6000,
+      allDay: false,
+      reminders: [10, 60]
+    })
+    db.prepare('INSERT INTO fired_reminders (event_id, occurrence_start_ts, minutes_before) VALUES (?, ?, ?)').run(
+      ev.id,
+      ev.startTs,
+      10
+    )
+    repo.update(ev.id, { reminders: [60, 10] })
+    const fired = db.prepare('SELECT 1 FROM fired_reminders WHERE event_id = ?').get(ev.id) !== undefined
+    expect(fired).toBe(true)
+  })
+
   it('soft delete hides the event from getById but keeps the row', () => {
     const ev = repo.create({ title: 'x', color: '#3b82f6', startTs: 1000, endTs: 2000, allDay: false })
     repo.softDelete(ev.id)

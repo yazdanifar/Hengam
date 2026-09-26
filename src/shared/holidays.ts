@@ -1,7 +1,7 @@
 import type { DayInfo, HolidayEvent } from './types'
 import { jalaliDateKey, toGregorian, isFriday, type JalaliDate } from './jalali'
 
-/** Raw shape of a shamsi-holidays year file (github.com/hasan-ahani/shamsi-holidays). */
+/** Raw shape of a year file fetched from time.ir (see timeIrHolidays.ts). */
 export interface RawHolidayDay {
   date: string // 'YYYY-MM-DD' Jalali
   is_holiday: boolean

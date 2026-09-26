@@ -3,6 +3,7 @@
 // monthly/yearly rules are sent as an explicit RDATE list plus a private
 // extended property that round-trips the original rule exactly.
 import { addJalaliMonths, toGregorian, toJalali } from '@shared/jalali'
+import { MAX_REMINDERS, normalizeReminders } from '@shared/reminders'
 import type { RecurrenceRule } from '@shared/types'
 
 const WEEKDAY_CODES = ['SA', 'SU', 'MO', 'TU', 'WE', 'TH', 'FR'] // index 0=Saturday, matching our byWeekday convention
@@ -25,7 +26,7 @@ export interface LocalEventLike {
   endTs: number
   allDay: boolean
   rrule?: RecurrenceRule
-  reminderMin?: number
+  reminders?: number[]
   colorId?: string
 }
 
@@ -66,8 +67,13 @@ export function toGoogleEvent(ev: LocalEventLike): GoogleEventLike {
     start: ev.allDay ? { date: toDateOnly(ev.startTs) } : { dateTime: toRfc3339(ev.startTs), timeZone: 'Asia/Tehran' },
     end: ev.allDay ? { date: toDateOnly(ev.endTs) } : { dateTime: toRfc3339(ev.endTs), timeZone: 'Asia/Tehran' },
     colorId: ev.colorId,
-    reminders: ev.reminderMin !== undefined
-      ? { useDefault: false, overrides: [{ method: 'popup', minutes: ev.reminderMin }] }
+    reminders: ev.reminders?.length
+      ? {
+          useDefault: false,
+          overrides: normalizeReminders(ev.reminders)
+            .slice(0, MAX_REMINDERS)
+            .map((minutes) => ({ method: 'popup', minutes }))
+        }
       : { useDefault: false }
   }
 
@@ -134,7 +140,9 @@ export function fromGoogleEvent(g: GoogleEventLike): LocalEventLike {
     endTs,
     allDay,
     rrule,
-    reminderMin: g.reminders?.overrides?.[0]?.minutes,
+    reminders: normalizeReminders(
+      (g.reminders?.overrides ?? []).filter((o) => o.method === 'popup').map((o) => o.minutes)
+    ),
     colorId: g.colorId
   }
 }

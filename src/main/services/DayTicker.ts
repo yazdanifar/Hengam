@@ -25,6 +25,9 @@ export class DayTicker {
   }
 
   start(): void {
+    // Report today up front so the Dock icon and tray show the date from launch,
+    // not only after the first midnight.
+    this.onDayChanged(this.today)
     this.unsubResume = this.power.onResume(() => this.checkNow())
     this.unsubUnlock = this.power.onUnlockScreen(() => this.checkNow())
     this.armMidnightTimer()

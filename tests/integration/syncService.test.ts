@@ -569,3 +569,74 @@ describe('SyncService — getStatus', () => {
     expect(ctxDisabled.sync.getStatus().phase).toBe('idle') // configured=true by default in setup()
   })
 })
+
+describe('SyncService — failure tracking for alerts', () => {
+  function failNetwork(ctx: ReturnType<typeof setup>) {
+    ctx.http.on(/\/events\?/, () => {
+      throw new Error('offline')
+    })
+  }
+
+  it('stamps failingSince at the first failed run and keeps it through later failures', async () => {
+    const ctx = setup()
+    await connectAccount(ctx)
+    ctx.syncCalendars.upsertMany([{ calendarId: 'primary', summary: 'Me', primary: true }])
+    failNetwork(ctx)
+
+    const t0 = ctx.clock.now()
+    expect((await ctx.sync.syncNow('manual')).failingSince).toBe(t0)
+    ctx.clock.advance(5 * 60_000)
+    expect((await ctx.sync.syncNow('manual')).failingSince).toBe(t0)
+    expect(ctx.meta.getNumber('sync.failingSince')).toBe(t0)
+  })
+
+  it('clears failingSince on the next success and persists lastSuccessAt', async () => {
+    const ctx = setup()
+    await connectAccount(ctx)
+    ctx.syncCalendars.upsertMany([{ calendarId: 'primary', summary: 'Me', primary: true }])
+    failNetwork(ctx)
+    await ctx.sync.syncNow('manual')
+
+    ctx.http.onJson(/\/events\?/, 200, { items: [], nextSyncToken: 'tok' })
+    ctx.clock.advance(60_000)
+    const ok = await ctx.sync.syncNow('manual')
+    expect(ok.failingSince).toBeUndefined()
+    expect(ok.lastSuccessAt).toBe(ctx.clock.now())
+    expect(ctx.meta.getNumber('sync.failingSince')).toBeUndefined()
+    expect(ctx.meta.getNumber('sync.lastSuccessAt')).toBe(ctx.clock.now())
+  })
+
+  it('restores lastSuccessAt and an ongoing failure after a restart', async () => {
+    const ctx = setup()
+    ctx.meta.setNumber('sync.lastSuccessAt', 111)
+    ctx.meta.setNumber('sync.failingSince', 222)
+    const restarted = new SyncService(ctx.clock, ctx.power, ctx.auth, ctx.client, ctx.events, ctx.syncCalendars, ctx.meta, ctx.bridge, true)
+    expect(restarted.getStatus()).toMatchObject({ lastSuccessAt: 111, failingSince: 222 })
+  })
+
+  it('ends a failure episode when there is nothing to sync: signed out, or no calendars enabled', async () => {
+    const ctx = setup()
+    ctx.meta.setNumber('sync.failingSince', 5)
+    const signedOut = new SyncService(ctx.clock, ctx.power, ctx.auth, ctx.client, ctx.events, ctx.syncCalendars, ctx.meta, ctx.bridge, true)
+    expect((await signedOut.syncNow('manual')).failingSince).toBeUndefined()
+
+    await connectAccount(ctx)
+    ctx.meta.setNumber('sync.failingSince', 5)
+    const noCalendars = new SyncService(ctx.clock, ctx.power, ctx.auth, ctx.client, ctx.events, ctx.syncCalendars, ctx.meta, ctx.bridge, true)
+    expect((await noCalendars.syncNow('manual')).failingSince).toBeUndefined()
+    expect(ctx.meta.getNumber('sync.failingSince')).toBeUndefined()
+  })
+
+  it('disconnect ends the failure episode', async () => {
+    const ctx = setup()
+    await connectAccount(ctx)
+    ctx.syncCalendars.upsertMany([{ calendarId: 'primary', summary: 'Me', primary: true }])
+    failNetwork(ctx)
+    await ctx.sync.syncNow('manual')
+    ctx.http.on(/revoke/, () => new Response('', { status: 200 }))
+
+    const s = await ctx.sync.disconnect()
+    expect(s.failingSince).toBeUndefined()
+    expect(ctx.meta.getNumber('sync.failingSince')).toBeUndefined()
+  })
+})

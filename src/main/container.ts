@@ -2,10 +2,13 @@ import path from 'node:path'
 import { app } from 'electron'
 import { openDatabase } from './db'
 import { EventsRepo } from './repo/events'
-import { TasksRepo } from './repo/tasks'
 import { SyncCalendarsRepo } from './repo/syncCalendars'
 import { MetaRepo } from './repo/meta'
 import { HolidayService } from './services/HolidayService'
+import { NotificationCenter } from './services/NotificationCenter'
+import { AlertMonitor } from './services/AlertMonitor'
+import { NotificationsRepo } from './repo/notifications'
+import { AlertSettingsRepo } from './repo/alertSettings'
 import { ReminderService } from './services/ReminderService'
 import { DayTicker } from './services/DayTicker'
 import { DockIconService } from './services/DockIconService'
@@ -14,10 +17,11 @@ import { SystemClock } from './adapters/SystemClock'
 import {
   ElectronBrowserLauncher,
   ElectronDock,
+  ElectronLoginItem,
   ElectronNotifier,
   ElectronPowerEvents,
   ElectronTray,
-  GithubHolidayFeed,
+  TimeIrHolidayFeed,
   KeychainSecretStore
 } from './adapters/electronAdapters'
 import { FetchHttpClient } from './adapters/FetchHttpClient'
@@ -28,11 +32,12 @@ import { GoogleAuth } from './sync/GoogleAuth'
 import { GoogleCalendarClient } from './sync/GoogleCalendarClient'
 import { SyncService } from './sync/SyncService'
 import type { RendererBridge } from './ports'
-import { readFileSync, appendFileSync } from 'node:fs'
+import type { SettingsSection } from '@shared/events'
+import { appendFileSync } from 'node:fs'
 import { toJalali } from '@shared/jalali'
 
 /** The composition root: the only place real adapters are built and wired to services. */
-export function buildContainer() {
+export function buildContainer({ showWindow }: { showWindow: () => void }) {
   const dataDir = process.env.HENGAM_DATA_DIR || app.getPath('userData')
   installFileLogger(dataDir)
   const dbPath = path.join(dataDir, 'planner.db')
@@ -40,28 +45,69 @@ export function buildContainer() {
 
   const clock = new SystemClock()
   const events = new EventsRepo(db, clock)
-  const tasks = new TasksRepo(db)
   const syncCalendars = new SyncCalendarsRepo(db)
   const meta = new MetaRepo(db)
 
-  const bundledHolidaysDir = path.join(__dirname, '../../src/shared/data/holidays')
-  const holidays = new HolidayService(clock, new GithubHolidayFeed(), dataDir, bundledHolidaysDir)
-
+  const power = new ElectronPowerEvents()
+  const bridge = new ElectronRendererBridge()
   const notifier = new ElectronNotifier()
-  const reminders = new ReminderService(db, clock, notifier, events)
+
+  // Every service pushes through this: it forwards to the renderer, and lets the status
+  // pushes that matter elsewhere also refresh the tray and re-check failure alerts —
+  // without teaching SyncService or HolidayService about the tray or the bell.
+  const observedBridge: RendererBridge = {
+    send: (channel, payload) => {
+      bridge.send(channel, payload)
+      if (channel === 'sync:status') {
+        refreshTray()
+        alerts.evaluate()
+      } else if (channel === 'holidays:status') {
+        alerts.evaluate()
+      } else if (channel === 'holidays:changed') {
+        refreshTray()
+      }
+    }
+  }
+
+  const bundledHolidaysDir = path.join(__dirname, '../../src/shared/data/holidays')
+  const holidays = new HolidayService(
+    clock,
+    new TimeIrHolidayFeed(),
+    dataDir,
+    bundledHolidaysDir,
+    meta,
+    power,
+    observedBridge
+  )
+
+  const notifications = new NotificationCenter(new NotificationsRepo(db), clock, observedBridge)
+  const alertSettings = new AlertSettingsRepo(meta)
+
+  const reminders = new ReminderService(db, clock, notifier, events, undefined, (r) => notifications.addReminder(r))
 
   const dock = new ElectronDock()
   const iconTemplatePath = path.join(__dirname, '../../build/icon-day.svg')
-  const dockIcon = new DockIconService(dock, iconTemplatePath)
+  // resvg's native code can't read inside app.asar, so the font is asar-unpacked (see package.json).
+  const dockIconFont = path
+    .join(__dirname, '../../node_modules/vazirmatn/fonts/ttf/Vazirmatn-ExtraBold.ttf')
+    .replace('app.asar', 'app.asar.unpacked')
+  const dockIcon = new DockIconService(dock, iconTemplatePath, dockIconFont)
 
-  const iconPng = readFileSync(path.join(__dirname, '../../build/icon.png'))
-  const trayPort = new ElectronTray(iconPng)
+  const trayPort = new ElectronTray()
+  const loginItem = new ElectronLoginItem()
+  // Default "open at login" on so the Dock icon shows today's date without the user
+  // having to find the toggle. Applied once ever (tracked in meta), so a user who
+  // later turns it off keeps that choice across restarts. Packaged builds only: an
+  // unpackaged (dev/test) run would register the bare Electron binary as a login item.
+  if (app.isPackaged && meta.get('loginItemDefaultApplied') === undefined) {
+    loginItem.setEnabled(true)
+    meta.set('loginItemDefaultApplied', '1')
+  }
 
   const secrets = new KeychainSecretStore(path.join(dataDir, 'google.bin'))
   const browser = new ElectronBrowserLauncher()
   const http = new FetchHttpClient()
   const loopback = new NodeLoopbackServer()
-  const bridge = new ElectronRendererBridge()
 
   const googleConfig = loadGoogleConfig()
   const auth = new GoogleAuth(
@@ -77,34 +123,47 @@ export function buildContainer() {
   let lastDay: ReturnType<typeof toJalali> | undefined
   let lastDayDate: Date | undefined
 
-  // Wraps the real renderer bridge so a sync-status push also refreshes the tray's
-  // "همگام‌سازی" item and connected-account state, without teaching SyncService about
-  // the tray or the container about SyncService's internals.
-  const trayAwareBridge: RendererBridge = {
-    send: (channel, payload) => {
-      bridge.send(channel, payload)
-      if (channel === 'sync:status') refreshTray()
-    }
-  }
-
   const sync = new SyncService(
     clock,
-    new ElectronPowerEvents(),
+    power,
     auth,
     calendarClient,
     events,
     syncCalendars,
     meta,
-    trayAwareBridge,
+    observedBridge,
     googleConfig !== null
   )
 
+  // An alert's OS notification opens the window on the settings tab for that job.
+  function openSettings(section: SettingsSection): void {
+    showWindow()
+    bridge.send('settings:open', { section })
+  }
+
+  const alerts = new AlertMonitor(
+    clock,
+    notifications,
+    alertSettings,
+    {
+      sync_failure: () => sync.getStatus().failingSince,
+      holiday_failure: () => holidays.getStatus().failingSince
+    },
+    notifier,
+    openSettings
+  )
+
   const tray = new TrayService(trayPort, holidays, {
-    onShowWindow: () => {},
+    onShowWindow: showWindow,
     onNewEvent: () => {},
     onQuit: () => app.quit(),
     onOpenEvent: () => {},
-    onSyncNow: () => void sync.syncNow('manual')
+    onSyncNow: () => void sync.syncNow('manual'),
+    isOpenAtLogin: () => loginItem.isEnabled(),
+    onToggleOpenAtLogin: () => {
+      loginItem.setEnabled(!loginItem.isEnabled())
+      refreshTray()
+    }
   })
 
   function refreshTray(): void {
@@ -115,9 +174,14 @@ export function buildContainer() {
     tray.update(lastDay, lastDayDate, todaysEvents, sync.getStatus().connected)
   }
 
-  const power = new ElectronPowerEvents()
   const dayTicker = new DayTicker(clock, power, (day) => {
-    dockIcon.update(day)
+    // DayTicker.start() calls this synchronously during startup; a rendering failure
+    // (missing font/template, resvg error) must not take down the tray, sync or window.
+    try {
+      dockIcon.update(day)
+    } catch (err) {
+      console.error('Dock icon update failed', err)
+    }
     lastDay = day
     lastDayDate = new Date(clock.now())
     refreshTray()
@@ -127,12 +191,16 @@ export function buildContainer() {
     db,
     clock,
     events,
-    tasks,
     holidays,
+    notifications,
+    alertSettings,
+    alerts,
     reminders,
     dockIcon,
     tray,
+    loginItem,
     dayTicker,
+    refreshTray,
     secrets,
     browser,
     http,

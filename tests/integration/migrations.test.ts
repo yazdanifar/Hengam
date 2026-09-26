@@ -12,10 +12,10 @@ describe('migrations', () => {
     expect(after).toEqual(before)
   })
 
-  it('lands on user_version 3', () => {
+  it('lands on user_version 5', () => {
     const db = new Database(':memory:')
     migrate(db)
-    expect(db.pragma('user_version', { simple: true })).toBe(3)
+    expect(db.pragma('user_version', { simple: true })).toBe(5)
   })
 
   it('the events table has no categories table or category_id column left', () => {
@@ -62,7 +62,7 @@ describe('migrations', () => {
 
     migrate(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(3)
+    expect(db.pragma('user_version', { simple: true })).toBe(5)
     const row = db.prepare('SELECT * FROM events WHERE id = ?').get('ev1') as {
       title: string
       color: string
@@ -73,6 +73,48 @@ describe('migrations', () => {
     expect(row.color).toBe('#3b82f6') // carried over from its old category
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]
     expect(tables.map((t) => t.name)).not.toContain('categories')
+    expect(tables.map((t) => t.name)).not.toContain('tasks')
+  })
+
+  it('a v3 reminder_min becomes a one-item reminders list, and its fired_reminders row keeps its offset', () => {
+    const db = new Database(':memory:')
+    // Build the exact v3 schema (post categories-drop, pre-reminders_json) directly.
+    db.exec(`
+      CREATE TABLE events (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, notes TEXT,
+        start_ts INTEGER NOT NULL, end_ts INTEGER NOT NULL, all_day INTEGER NOT NULL DEFAULT 0,
+        rrule_json TEXT, reminder_min INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        calendar_id TEXT, google_id TEXT, etag TEXT, dirty INTEGER NOT NULL DEFAULT 1, deleted_at INTEGER,
+        remote_updated_at INTEGER, color TEXT NOT NULL DEFAULT '${DEFAULT_EVENT_COLOR}'
+      );
+      CREATE UNIQUE INDEX idx_events_google_uid ON events(calendar_id, google_id) WHERE google_id IS NOT NULL;
+      CREATE TABLE event_exceptions (
+        event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        occurrence_start_ts INTEGER NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('skip','override')),
+        override_json TEXT, google_id TEXT, etag TEXT, dirty INTEGER NOT NULL DEFAULT 1, remote_updated_at INTEGER,
+        PRIMARY KEY (event_id, occurrence_start_ts)
+      );
+      CREATE TABLE tasks (id TEXT PRIMARY KEY, jdate TEXT NOT NULL, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, sort INTEGER NOT NULL DEFAULT 0);
+      CREATE INDEX idx_tasks_jdate ON tasks(jdate);
+      CREATE TABLE fired_reminders (event_id TEXT NOT NULL, occurrence_start_ts INTEGER NOT NULL, PRIMARY KEY (event_id, occurrence_start_ts));
+      CREATE TABLE sync_calendars (calendar_id TEXT PRIMARY KEY, summary TEXT NOT NULL, color TEXT, enabled INTEGER NOT NULL DEFAULT 1, sync_token TEXT, is_default_target INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    `)
+    db.pragma('user_version = 3')
+    db.prepare(
+      'INSERT INTO events (id, title, color, start_ts, end_ts, created_at, updated_at, reminder_min) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run('ev1', 'جلسه', DEFAULT_EVENT_COLOR, 1000, 2000, 1000, 1000, 15)
+    db.prepare('INSERT INTO fired_reminders (event_id, occurrence_start_ts) VALUES (?, ?)').run('ev1', 1000)
+
+    migrate(db)
+
+    expect(db.pragma('user_version', { simple: true })).toBe(5)
+    const row = db.prepare('SELECT reminders_json FROM events WHERE id = ?').get('ev1') as { reminders_json: string }
+    expect(JSON.parse(row.reminders_json)).toEqual([15])
+    const fired = db.prepare('SELECT minutes_before FROM fired_reminders WHERE event_id = ?').get('ev1') as {
+      minutes_before: number
+    }
+    expect(fired.minutes_before).toBe(15)
   })
 
   it('the partial unique index rejects duplicate (calendar_id, google_id) but allows many NULLs', () => {
@@ -86,5 +128,25 @@ describe('migrations', () => {
     insert.run('b', 'B', DEFAULT_EVENT_COLOR, 1, 2, 1, 1, null, null) // two NULL google_id rows: fine
     insert.run('c', 'C', DEFAULT_EVENT_COLOR, 1, 2, 1, 1, 'cal1', 'g1')
     expect(() => insert.run('d', 'D', DEFAULT_EVENT_COLOR, 1, 2, 1, 1, 'cal1', 'g1')).toThrow(/UNIQUE constraint/)
+  })
+})
+
+describe('migration v5 — notification inbox', () => {
+  it('creates an empty notifications table with the inbox columns', () => {
+    const db = new Database(':memory:')
+    migrate(db)
+    const cols = (db.prepare('PRAGMA table_info(notifications)').all() as { name: string }[]).map((c) => c.name)
+    expect(cols).toEqual([
+      'id',
+      'kind',
+      'created_at',
+      'read_at',
+      'resolved_at',
+      'title',
+      'body',
+      'event_start_ts',
+      'failing_since'
+    ])
+    expect(db.prepare('SELECT COUNT(*) AS n FROM notifications').get()).toEqual({ n: 0 })
   })
 })

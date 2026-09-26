@@ -1,5 +1,5 @@
-// Persian date/time formatting for sync status ("last synced"). Kept out of format.ts,
-// which is deliberately a dependency-free leaf; this needs jalali.ts. Both functions take
+// Persian date/time formatting for background-job status ("last synced", "next update"). Kept out of format.ts,
+// which is deliberately a dependency-free leaf; this needs jalali.ts. Every function takes
 // `now` explicitly so they stay pure and testable, consistent with the Clock port.
 import { toFaDigits, formatTimeFromDate } from './format'
 import { MONTH_NAMES, toJalali, sameJalaliDate } from './jalali'
@@ -27,5 +27,14 @@ export function formatRelativeFa(ts: number, now: number): string {
   if (diff < MINUTE_MS) return 'لحظاتی پیش'
   if (diff < HOUR_MS) return `${toFaDigits(Math.floor(diff / MINUTE_MS))} دقیقه پیش`
   if (diff < DAY_MS) return `${toFaDigits(Math.floor(diff / HOUR_MS))} ساعت پیش`
+  return formatJalaliDateTime(ts, now)
+}
+
+/** "کمتر از یک دقیقه دیگر" / "۵ دقیقه دیگر" / "۳ ساعت دیگر", falling back to formatJalaliDateTime beyond 24h. */
+export function formatUntilFa(ts: number, now: number): string {
+  const diff = ts - now
+  if (diff < MINUTE_MS) return 'کمتر از یک دقیقه دیگر'
+  if (diff < HOUR_MS) return `${toFaDigits(Math.ceil(diff / MINUTE_MS))} دقیقه دیگر`
+  if (diff < DAY_MS) return `${toFaDigits(Math.round(diff / HOUR_MS))} ساعت دیگر`
   return formatJalaliDateTime(ts, now)
 }

@@ -7,7 +7,7 @@ import type { DockPort } from '../ports'
 /** Renders the squircle/star/clock-face template with today's Jalali day burned in. */
 export function renderDayIcon(jd: number, templateSvg: string, fontPath?: string): Buffer {
   const day = toFaDigits(jd)
-  const fontSize = day.length <= 1 ? 220 : 190
+  const fontSize = day.length <= 1 ? 290 : 250
   const svg = templateSvg.replace('{{DAY}}', day).replace('{{FONT_SIZE}}', String(fontSize))
   const resvg = new Resvg(svg, {
     fitTo: { mode: 'width', value: 1024 },

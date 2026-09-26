@@ -9,6 +9,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "icon": "node scripts/make-icon.mjs",
+    "holidays": "node --no-warnings scripts/fetch-holidays.mjs",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -22,16 +23,20 @@
     "appId": "ir.hengam.app",
     "productName": "Hengam",
     "npmRebuild": false,
+    "electronLanguages": ["fa"],
     "files": [
       "out/**/*",
-      "build/icon.png",
       "build/icon-day.svg",
       "src/shared/data/holidays/**/*.json"
     ],
-    "asarUnpack": ["**/node_modules/better-sqlite3/**"],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**",
+      "**/node_modules/vazirmatn/fonts/ttf/Vazirmatn-ExtraBold.ttf"
+    ],
     "mac": {
       "identity": null,
       "icon": "build/icon.png",
+      "extendInfo": { "CFBundleDevelopmentRegion": "fa" },
       "target": [{ "target": "dmg", "arch": ["arm64"] }]
     }
   },

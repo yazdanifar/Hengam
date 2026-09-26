@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatJalaliDateTime, formatRelativeFa } from '@shared/datetime'
+import { formatJalaliDateTime, formatRelativeFa, formatUntilFa } from '@shared/datetime'
 
 describe('formatRelativeFa', () => {
   const now = new Date('2026-09-23T12:00:00').getTime()
@@ -50,5 +50,25 @@ describe('formatJalaliDateTime', () => {
     const result = formatJalaliDateTime(new Date('2026-08-01T08:00:00').getTime(), now)
     expect(result).toContain('ساعت')
     expect(result).not.toMatch(/[0-9]/)
+  })
+})
+
+describe('formatUntilFa', () => {
+  const now = new Date(2026, 8, 24, 10, 0).getTime()
+  const MIN = 60_000
+
+  it('says "less than a minute" for anything due now or already overdue', () => {
+    expect(formatUntilFa(now + 30_000, now)).toBe('کمتر از یک دقیقه دیگر')
+    expect(formatUntilFa(now - 5 * MIN, now)).toBe('کمتر از یک دقیقه دیگر')
+  })
+
+  it('rounds minutes up, so a 90-second wait never reads as one minute', () => {
+    expect(formatUntilFa(now + 90_000, now)).toBe('۲ دقیقه دیگر')
+    expect(formatUntilFa(now + 59 * MIN, now)).toBe('۵۹ دقیقه دیگر')
+  })
+
+  it('switches to hours under a day, and to a calendar time beyond it', () => {
+    expect(formatUntilFa(now + 3 * 60 * MIN, now)).toBe('۳ ساعت دیگر')
+    expect(formatUntilFa(now + 26 * 60 * MIN, now)).toBe(formatJalaliDateTime(now + 26 * 60 * MIN, now))
   })
 })

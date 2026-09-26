@@ -12,7 +12,8 @@ import { toFaDigits } from '@shared/format'
 import { useAppStore } from '../store'
 import { useApi } from '../apiContext'
 import { useHolidays } from '../useHolidays'
-import { EventDialog, type EventDialogResult } from '../components/EventDialog'
+import { useEventDialog } from '../useEventDialog'
+import { EventDialog } from '../components/EventDialog'
 
 const MAX_CHIPS = 3
 
@@ -21,22 +22,19 @@ export function MonthView() {
   const { selectedDate, goto, setView, dataVersion } = useAppStore()
   const holidays = useHolidays(selectedDate.jy)
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
-  const [dialog, setDialog] = useState<Date | null>(null)
   const today = useMemo(() => toJalali(new Date()), [])
 
   const cells = useMemo(() => monthMatrix(selectedDate.jy, selectedDate.jm), [selectedDate.jy, selectedDate.jm])
   const rangeStart = useMemo(() => toGregorian(cells[0].jy, cells[0].jm, cells[0].jd).getTime(), [cells])
   const rangeEnd = rangeStart + 42 * 86400_000
 
-  useEffect(() => {
-    api.events.range(rangeStart, rangeEnd).then(setOccurrences)
-  }, [api, rangeStart, rangeEnd, dataVersion])
+  const refetch = () => api.events.range(rangeStart, rangeEnd).then(setOccurrences)
+  const { dialog, openEdit, close, handleSave, handleDelete } = useEventDialog(refetch)
 
-  async function handleSave(result: EventDialogResult) {
-    await api.events.create(result)
-    setDialog(null)
-    api.events.range(rangeStart, rangeEnd).then(setOccurrences)
-  }
+  useEffect(() => {
+    refetch()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, rangeStart, rangeEnd, dataVersion])
 
   return (
     <div className="view-body">
@@ -79,6 +77,10 @@ export function MonthView() {
                   key={`${o.eventId}-${o.occurrenceStartTs}`}
                   className="month-chip"
                   style={{ background: o.color }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openEdit(o)
+                  }}
                 >
                   {o.title}
                 </div>
@@ -90,7 +92,16 @@ export function MonthView() {
           )
         })}
       </div>
-      {dialog && <EventDialog initialDate={dialog} onClose={() => setDialog(null)} onSave={handleSave} />}
+      {dialog && (
+        <EventDialog
+          initialDate={dialog.date}
+          existing={dialog.existing}
+          occurrence={dialog.occurrence}
+          onClose={close}
+          onSave={handleSave}
+          onDelete={handleDelete}
+        />
+      )}
     </div>
   )
 }

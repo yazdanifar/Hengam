@@ -4,12 +4,22 @@ import { FakePowerEvents } from '../support/fakes/FakePowerEvents'
 import { DayTicker } from '@main/services/DayTicker'
 
 describe('DayTicker', () => {
+  it('reports today once on start', () => {
+    const clock = new FakeClock('2026-09-22T10:00:00')
+    const power = new FakePowerEvents()
+    const changes: string[] = []
+    const ticker = new DayTicker(clock, power, (d) => changes.push(`${d.jy}-${d.jm}-${d.jd}`))
+    ticker.start()
+    expect(changes).toEqual(['1405-6-31'])
+  })
+
   it('fires onDayChanged once at midnight', () => {
     const clock = new FakeClock('2026-09-22T23:59:50')
     const power = new FakePowerEvents()
     const changes: string[] = []
     const ticker = new DayTicker(clock, power, (d) => changes.push(`${d.jy}-${d.jm}-${d.jd}`))
     ticker.start()
+    changes.length = 0 // ignore the initial report from start()
 
     clock.advance(20_000) // crosses midnight
     expect(changes).toHaveLength(1)
@@ -22,6 +32,7 @@ describe('DayTicker', () => {
     const changes: string[] = []
     const ticker = new DayTicker(clock, power, (d) => changes.push(`${d.jy}-${d.jm}-${d.jd}`))
     ticker.start()
+    changes.length = 0 // ignore the initial report from start()
 
     clock.setNow('2026-09-25T10:00:00') // 3 days later, no timers fired
     power.fireResume()
@@ -35,6 +46,7 @@ describe('DayTicker', () => {
     const changes: string[] = []
     const ticker = new DayTicker(clock, power, (d) => changes.push(`${d.jy}-${d.jm}-${d.jd}`))
     ticker.start()
+    changes.length = 0 // ignore the initial report from start()
 
     clock.advance(60 * 60 * 1000) // one hour later, same day
     expect(changes).toHaveLength(0)
@@ -46,6 +58,7 @@ describe('DayTicker', () => {
     const changes: string[] = []
     const ticker = new DayTicker(clock, power, (d) => changes.push(`${d.jy}-${d.jm}-${d.jd}`))
     ticker.start()
+    changes.length = 0 // ignore the initial report from start()
     expect(power.listenerCount()).toBe(2) // resume + unlock-screen
 
     ticker.stop()

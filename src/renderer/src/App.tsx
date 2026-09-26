@@ -1,10 +1,9 @@
 import { ApiProvider } from './apiContext'
 import { useAppStore } from './store'
 import { useSyncStore } from './syncStore'
-import { useSyncBridge } from './useSyncBridge'
+import { useMainBridge } from './useMainBridge'
 import { Header } from './components/Header'
 import { MiniMonth } from './components/Sidebar/MiniMonth'
-import { TaskList } from './components/Sidebar/TaskList'
 import { SettingsDialog } from './components/SettingsDialog'
 import { DayView } from './views/DayView'
 import { WeekView } from './views/WeekView'
@@ -19,7 +18,7 @@ export function App() {
 }
 
 function AppBody() {
-  useSyncBridge()
+  useMainBridge()
   const settingsOpen = useSyncStore((s) => s.settingsOpen)
   const closeSettings = useSyncStore((s) => s.closeSettings)
 
@@ -30,7 +29,6 @@ function AppBody() {
           <span className="wordmark">هنگام</span>
         </div>
         <MiniMonth />
-        <TaskList />
       </aside>
       <main className="main-area">
         <Header />

@@ -1,7 +1,7 @@
-import type { SyncErrorCode } from '@shared/events'
+import type { HolidayErrorCode, SyncErrorCode } from '@shared/events'
 
-/** All Persian text for sync errors lives here, so raw Google/English text never lands
- *  in the RTL UI — main only ever sends a stable `code` across IPC. */
+/** All Persian text for background-job errors lives here, so raw Google/time.ir/English
+ *  text never lands in the RTL UI — main only ever sends a stable `code` across IPC. */
 export const SYNC_ERROR_MESSAGES: Record<SyncErrorCode, string> = {
   not_configured: 'همگام‌سازی پیکربندی نشده است.',
   not_connected: 'حساب گوگلی متصل نیست.',
@@ -20,4 +20,17 @@ export const SYNC_ERROR_MESSAGES: Record<SyncErrorCode, string> = {
 
 export function syncErrorMessage(code: SyncErrorCode | undefined): string | undefined {
   return code ? SYNC_ERROR_MESSAGES[code] : undefined
+}
+
+export const HOLIDAY_ERROR_MESSAGES: Record<HolidayErrorCode, string> = {
+  network: 'اتصال به time.ir برقرار نشد.',
+  blocked: 'time.ir درخواست را نپذیرفت.',
+  server: 'time.ir در دسترس نبود.',
+  site_changed: 'ساختار سایت time.ir تغییر کرده است؛ به‌روزرسانی برنامه لازم است.',
+  invalid_data: 'اطلاعات دریافتی از time.ir ناقص بود.',
+  unknown: 'دریافت تعطیلات ناموفق بود.'
+}
+
+export function holidayErrorMessage(code: HolidayErrorCode | undefined): string | undefined {
+  return code ? HOLIDAY_ERROR_MESSAGES[code] : undefined
 }

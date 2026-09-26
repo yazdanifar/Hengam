@@ -1,34 +1,32 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { EventRecord, Occurrence } from '@shared/types'
+import type { Occurrence } from '@shared/types'
 import { sameJalaliDate, toJalali } from '@shared/jalali'
 import { useAppStore } from '../store'
 import { useApi } from '../apiContext'
 import { useHolidays } from '../useHolidays'
+import { useEventDialog } from '../useEventDialog'
 import { TimeGrid } from '../components/TimeGrid/TimeGrid'
-import { EventDialog, type EventDialogResult } from '../components/EventDialog'
+import { EventDialog } from '../components/EventDialog'
 
 export function DayView() {
   const api = useApi()
   const { selectedDate, selectedGregorian, dataVersion } = useAppStore()
   const holidays = useHolidays(selectedDate.jy)
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
-  const [dialog, setDialog] = useState<{ date: Date; existing?: EventRecord } | null>(null)
 
   const dayStart = useMemo(() => new Date(selectedGregorian).setHours(0, 0, 0, 0), [selectedGregorian])
   const dayEnd = dayStart + 24 * 60 * 60 * 1000
 
+  const refetch = () => api.events.range(dayStart, dayEnd).then(setOccurrences)
+  const { dialog, openCreate, openEdit, close, handleSave, handleDelete } = useEventDialog(refetch)
+
   useEffect(() => {
-    api.events.range(dayStart, dayEnd).then(setOccurrences)
+    refetch()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, dayStart, dayEnd, dataVersion])
 
   const info = holidays?.get(selectedDate)
   const isToday = useMemo(() => sameJalaliDate(selectedDate, toJalali(new Date())), [selectedDate])
-
-  async function handleSave(result: EventDialogResult) {
-    await api.events.create(result)
-    setDialog(null)
-    api.events.range(dayStart, dayEnd).then(setOccurrences)
-  }
 
   return (
     <div className="view-body">
@@ -48,11 +46,18 @@ export function DayView() {
             occurrences
           }
         ]}
-        onSlotClick={(dayStartTs, hour) => setDialog({ date: new Date(dayStartTs + hour * 3600_000) })}
-        onEventClick={() => {}}
+        onSlotClick={(dayStartTs, hour) => openCreate(new Date(dayStartTs + hour * 3600_000))}
+        onEventClick={openEdit}
       />
       {dialog && (
-        <EventDialog initialDate={dialog.date} existing={dialog.existing} onClose={() => setDialog(null)} onSave={handleSave} />
+        <EventDialog
+          initialDate={dialog.date}
+          existing={dialog.existing}
+          occurrence={dialog.occurrence}
+          onClose={close}
+          onSave={handleSave}
+          onDelete={handleDelete}
+        />
       )}
     </div>
   )

@@ -1,10 +1,20 @@
 import { useState } from 'react'
-import type { EventRecord, RecurrenceRule } from '@shared/types'
+import type { EventRecord, Occurrence, RecurrenceRule } from '@shared/types'
 import { parseDigits, toFaDigits, pad2 } from '@shared/format'
 import { WEEKDAY_LABELS } from '@shared/jalali'
+import {
+  MAX_REMINDERS,
+  MAX_REMINDER_MIN,
+  REMINDER_UNIT_LABELS,
+  splitMinutes,
+  toMinutes,
+  normalizeReminders,
+  type ReminderUnit
+} from '@shared/reminders'
 import { useDialogA11y } from '../useDialogA11y'
 
 const DEFAULT_EVENT_COLOR = '#3b82f6'
+const REMINDER_UNIT_OPTIONS: ReminderUnit[] = ['m', 'h', 'd', 'w']
 
 export interface EventDialogResult {
   title: string
@@ -14,14 +24,24 @@ export interface EventDialogResult {
   endTs: number
   allDay: boolean
   rrule?: RecurrenceRule
-  reminderMin?: number
+  reminders: number[]
+}
+
+interface ReminderDraft {
+  value: string
+  unit: ReminderUnit
 }
 
 interface Props {
-  initialDate: Date // the slot the user clicked
+  initialDate: Date // the slot the user clicked (create), or the clicked occurrence's day (edit)
   existing?: EventRecord
+  /** The specific occurrence that was clicked, when editing a recurring event. Its
+   *  start/end give the day+time actually shown to the user; `existing.startTs/endTs`
+   *  stay the series anchor, used only when the save scope is 'all'. */
+  occurrence?: Occurrence
   onClose(): void
   onSave(result: EventDialogResult, scope?: 'this' | 'all'): void
+  onDelete?(scope?: 'this' | 'all'): void
 }
 
 function timeStr(d: Date): string {
@@ -35,50 +55,127 @@ function withTime(base: Date, hhmm: string): Date {
   return d
 }
 
-export function EventDialog({ initialDate, existing, onClose, onSave }: Props) {
+export function EventDialog({ initialDate, existing, occurrence, onClose, onSave, onDelete }: Props) {
   const { ref, dialogProps, titleId } = useDialogA11y(onClose)
-  const [title, setTitle] = useState(existing?.title ?? '')
-  const [notes, setNotes] = useState(existing?.notes ?? '')
-  const [color, setColor] = useState(existing?.color ?? DEFAULT_EVENT_COLOR)
-  const start = existing ? new Date(existing.startTs) : initialDate
-  const end = existing ? new Date(existing.endTs) : new Date(initialDate.getTime() + 3600_000)
+  // What's shown/edited: the clicked occurrence (which carries any per-occurrence
+  // override) when there is one, otherwise the event itself, otherwise the clicked slot.
+  const shown = occurrence ?? existing
+  const [title, setTitle] = useState(shown?.title ?? '')
+  const [notes, setNotes] = useState(shown?.notes ?? '')
+  const [color, setColor] = useState(shown?.color ?? DEFAULT_EVENT_COLOR)
+  const allDay = existing?.allDay ?? false
+  const start = shown ? new Date(shown.startTs) : initialDate
+  const end = shown ? new Date(shown.endTs) : new Date(initialDate.getTime() + 3600_000)
   const [startTime, setStartTime] = useState(timeStr(start))
   const [endTime, setEndTime] = useState(timeStr(end))
   const [freq, setFreq] = useState<'' | RecurrenceRule['freq']>(existing?.rrule?.freq ?? '')
   const [byWeekday, setByWeekday] = useState<number[]>(existing?.rrule?.byWeekday ?? [])
-  const [reminderMin, setReminderMin] = useState<string>(
-    existing?.reminderMin !== undefined ? String(existing.reminderMin) : ''
+  const [reminders, setReminders] = useState<ReminderDraft[]>(
+    (existing?.reminders ?? []).map((min) => {
+      const { value, unit } = splitMinutes(min)
+      return { value: String(value), unit }
+    })
   )
   const [error, setError] = useState('')
+  const [pendingAction, setPendingAction] = useState<'save' | 'delete' | null>(null)
+
+  const isRecurring = !!existing?.rrule
+
+  // Recurrence and reminders live on the series; a "this occurrence only" override can't
+  // carry them, so once they're edited only a whole-series save is offered.
+  const seriesFieldsChanged =
+    !!existing &&
+    (freq !== (existing.rrule?.freq ?? '') ||
+      JSON.stringify([...byWeekday].sort()) !== JSON.stringify([...(existing.rrule?.byWeekday ?? [])].sort()) ||
+      JSON.stringify(
+        normalizeReminders(reminders.map((r) => toMinutes(parseDigits(r.value), r.unit)))
+      ) !== JSON.stringify(existing.reminders))
 
   function toggleWeekday(i: number) {
     setByWeekday((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i].sort()))
   }
 
-  function submit() {
+  function addReminder() {
+    setReminders((prev) => (prev.length >= MAX_REMINDERS ? prev : [...prev, { value: '10', unit: 'm' }]))
+  }
+
+  function removeReminder(i: number) {
+    setReminders((prev) => prev.filter((_, idx) => idx !== i))
+  }
+
+  function updateReminder(i: number, patch: Partial<ReminderDraft>) {
+    setReminders((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  }
+
+  /** Builds the save payload. For scope 'all' the day comes from the series anchor
+   *  (existing.startTs), not from whichever occurrence was clicked — otherwise saving
+   *  "whole series" from, say, the 5th occurrence would shift the series by 5 days. */
+  function buildResult(scope?: 'this' | 'all'): EventDialogResult | null {
     if (!title.trim()) {
       setError('عنوان الزامی است')
-      return
+      return null
     }
-    const startTs = withTime(start, startTime).getTime()
-    const endTs = withTime(end, endTime).getTime()
+    const startDayBasis = scope === 'all' && existing ? new Date(existing.startTs) : start
+    const endDayBasis = scope === 'all' && existing ? new Date(existing.endTs) : end
+    const startTs = withTime(startDayBasis, startTime).getTime()
+    const endTs = withTime(endDayBasis, endTime).getTime()
     if (endTs <= startTs) {
       setError('زمان پایان باید بعد از زمان شروع باشد')
-      return
+      return null
     }
     const rrule: RecurrenceRule | undefined = freq
       ? { freq, interval: 1, byWeekday: freq === 'weekly' && byWeekday.length ? byWeekday : undefined }
       : undefined
-    onSave({
+    const reminderMinutes: number[] = []
+    for (const r of reminders) {
+      // 0 is valid ("at start time", common on Google events); a blank field is not,
+      // even though parseDigits('') is 0.
+      const value = parseDigits(r.value)
+      const minutes = toMinutes(value, r.unit)
+      if (!r.value.trim() || !Number.isInteger(value) || value < 0 || minutes > MAX_REMINDER_MIN) {
+        setError('مقدار اعلان نامعتبر است')
+        return null
+      }
+      reminderMinutes.push(minutes)
+    }
+    return {
       title: title.trim(),
       notes: notes.trim() || undefined,
       color,
       startTs,
       endTs,
-      allDay: false,
+      allDay,
       rrule,
-      reminderMin: reminderMin ? parseDigits(reminderMin) : undefined
-    })
+      reminders: normalizeReminders(reminderMinutes)
+    }
+  }
+
+  function submit() {
+    if (isRecurring) {
+      // Validate now so the error shows immediately, not after picking a scope.
+      if (!buildResult('this')) return
+      setPendingAction('save')
+      return
+    }
+    const result = buildResult()
+    if (result) onSave(result)
+  }
+
+  function requestDelete() {
+    if (isRecurring) {
+      setPendingAction('delete')
+      return
+    }
+    onDelete?.()
+  }
+
+  function chooseScope(scope: 'this' | 'all') {
+    if (pendingAction === 'delete') {
+      onDelete?.(scope)
+      return
+    }
+    const result = buildResult(scope)
+    if (result) onSave(result, scope)
   }
 
   return (
@@ -88,74 +185,148 @@ export function EventDialog({ initialDate, existing, onClose, onSave }: Props) {
         {existing?.googleId && (
           <div className="settings-note">این رویداد با تقویم گوگل همگام است.</div>
         )}
-        <div className="field">
-          <label htmlFor="ev-title">عنوان</label>
-          <input id="ev-title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-        </div>
-        <div className="field-row">
+        {pendingAction ? (
           <div className="field">
-            <label htmlFor="ev-start">شروع</label>
-            <input id="ev-start" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="ev-end">پایان</label>
-            <input id="ev-end" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-          </div>
-        </div>
-        <div className="field">
-          <label htmlFor="ev-color">رنگ</label>
-          <input
-            id="ev-color"
-            type="color"
-            className="color-input"
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="ev-freq">تکرار</label>
-          <select id="ev-freq" value={freq} onChange={(e) => setFreq(e.target.value as any)}>
-            <option value="">بدون تکرار</option>
-            <option value="daily">روزانه</option>
-            <option value="weekly">هفتگی</option>
-            <option value="monthly">ماهانه</option>
-            <option value="yearly">سالانه</option>
-          </select>
-        </div>
-        {freq === 'weekly' && (
-          <div className="field">
-            <label>روزهای هفته</label>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {WEEKDAY_LABELS.map((w, i) => (
-                <button
-                  key={w}
-                  type="button"
-                  className={byWeekday.includes(i) ? 'btn btn-primary' : 'btn btn-secondary'}
-                  onClick={() => toggleWeekday(i)}
-                >
-                  {w}
-                </button>
-              ))}
+            <label>{pendingAction === 'delete' ? 'حذف کدام مورد؟' : 'ذخیره برای کدام مورد؟'}</label>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button
+                className="btn btn-secondary"
+                disabled={pendingAction === 'save' && seriesFieldsChanged}
+                onClick={() => chooseScope('this')}
+              >
+                فقط همین مورد
+              </button>
+              <button className="btn btn-primary" onClick={() => chooseScope('all')}>
+                همهٔ موارد
+              </button>
+            </div>
+            {pendingAction === 'save' && seriesFieldsChanged && (
+              <div className="settings-note">تغییر تکرار یا اعلان‌ها فقط برای همهٔ موارد اعمال می‌شود.</div>
+            )}
+            <div className="dialog-actions">
+              <button className="btn btn-secondary" onClick={() => setPendingAction(null)}>
+                بازگشت
+              </button>
             </div>
           </div>
+        ) : (
+          <>
+            <div className="field">
+              <label htmlFor="ev-title">عنوان</label>
+              <input id="ev-title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+            </div>
+            <div className="field-row">
+              <div className="field">
+                <label htmlFor="ev-start">شروع</label>
+                <input
+                  id="ev-start"
+                  value={startTime}
+                  disabled={allDay}
+                  onChange={(e) => setStartTime(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="ev-end">پایان</label>
+                <input id="ev-end" value={endTime} disabled={allDay} onChange={(e) => setEndTime(e.target.value)} />
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="ev-color">رنگ</label>
+              <input
+                id="ev-color"
+                type="color"
+                className="color-input"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="ev-freq">تکرار</label>
+              <select id="ev-freq" value={freq} onChange={(e) => setFreq(e.target.value as any)}>
+                <option value="">بدون تکرار</option>
+                <option value="daily">روزانه</option>
+                <option value="weekly">هفتگی</option>
+                <option value="monthly">ماهانه</option>
+                <option value="yearly">سالانه</option>
+              </select>
+            </div>
+            {freq === 'weekly' && (
+              <div className="field">
+                <label>روزهای هفته</label>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {WEEKDAY_LABELS.map((w, i) => (
+                    <button
+                      key={w}
+                      type="button"
+                      className={byWeekday.includes(i) ? 'btn btn-primary' : 'btn btn-secondary'}
+                      onClick={() => toggleWeekday(i)}
+                    >
+                      {w}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="field">
+              <label>اعلان‌ها</label>
+              {reminders.map((r, i) => (
+                <div className="reminder-row" key={i}>
+                  <input
+                    aria-label="مقدار اعلان"
+                    className="reminder-value"
+                    inputMode="numeric"
+                    value={r.value}
+                    onChange={(e) => updateReminder(i, { value: e.target.value })}
+                  />
+                  <select
+                    aria-label="واحد اعلان"
+                    className="reminder-unit"
+                    value={r.unit}
+                    onChange={(e) => updateReminder(i, { unit: e.target.value as ReminderUnit })}
+                  >
+                    {REMINDER_UNIT_OPTIONS.map((u) => (
+                      <option key={u} value={u}>
+                        {REMINDER_UNIT_LABELS[u]}
+                      </option>
+                    ))}
+                  </select>
+                  <span>قبل</span>
+                  <button
+                    type="button"
+                    aria-label="حذف اعلان"
+                    className="reminder-remove"
+                    onClick={() => removeReminder(i)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {reminders.length < MAX_REMINDERS && (
+                <button type="button" className="btn btn-secondary reminder-add" onClick={addReminder}>
+                  + افزودن اعلان
+                </button>
+              )}
+            </div>
+            <div className="field">
+              <label htmlFor="ev-notes">یادداشت</label>
+              <textarea id="ev-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+            </div>
+            {error && <div className="error-text">{error}</div>}
+            <div className="dialog-actions">
+              {existing && onDelete && (
+                <button className="btn btn-danger" onClick={requestDelete} style={{ marginInlineEnd: 'auto' }}>
+                  حذف
+                </button>
+              )}
+              <button className="btn btn-secondary" onClick={onClose}>
+                انصراف
+              </button>
+              <button className="btn btn-primary" onClick={submit}>
+                ذخیره
+              </button>
+            </div>
+          </>
         )}
-        <div className="field">
-          <label htmlFor="ev-reminder">یادآوری (دقیقه قبل)</label>
-          <input id="ev-reminder" value={reminderMin} onChange={(e) => setReminderMin(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="ev-notes">یادداشت</label>
-          <textarea id="ev-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
-        </div>
-        {error && <div className="error-text">{error}</div>}
-        <div className="dialog-actions">
-          <button className="btn btn-secondary" onClick={onClose}>
-            انصراف
-          </button>
-          <button className="btn btn-primary" onClick={submit}>
-            ذخیره
-          </button>
-        </div>
       </div>
     </div>
   )

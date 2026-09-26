@@ -95,6 +95,46 @@ const MIGRATIONS: string[] = [
   );
   ALTER TABLE events DROP COLUMN category_id;
   DROP TABLE categories;
+  `,
+  // v4: replace the single reminder_min column with a list of minutes-before offsets
+  // (reminders_json), matching Google Calendar's multiple-notifications-per-event model.
+  // fired_reminders gains minutes_before so each offset of one occurrence is tracked on
+  // its own. Also drops the unused tasks table/feature.
+  `
+  ALTER TABLE events ADD COLUMN reminders_json TEXT;
+  UPDATE events SET reminders_json = json_array(reminder_min) WHERE reminder_min IS NOT NULL;
+  ALTER TABLE events DROP COLUMN reminder_min;
+
+  CREATE TABLE fired_reminders_new (
+    event_id TEXT NOT NULL,
+    occurrence_start_ts INTEGER NOT NULL,
+    minutes_before INTEGER NOT NULL,
+    PRIMARY KEY (event_id, occurrence_start_ts, minutes_before)
+  );
+  INSERT INTO fired_reminders_new (event_id, occurrence_start_ts, minutes_before)
+    SELECT fr.event_id, fr.occurrence_start_ts,
+           COALESCE((SELECT json_extract(e.reminders_json, '$[0]') FROM events e WHERE e.id = fr.event_id), 0)
+    FROM fired_reminders fr;
+  DROP TABLE fired_reminders;
+  ALTER TABLE fired_reminders_new RENAME TO fired_reminders;
+
+  DROP TABLE tasks;
+  `,
+  // v5: the in-app notification inbox behind the header bell — fired event reminders and
+  // background-job failure alerts. resolved_at is only ever set on alerts.
+  `
+  CREATE TABLE notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    read_at INTEGER,
+    resolved_at INTEGER,
+    title TEXT NOT NULL DEFAULT '',
+    body TEXT,
+    event_start_ts INTEGER,
+    failing_since INTEGER
+  );
+  CREATE INDEX idx_notifications_created ON notifications(created_at);
   `
 ]
 

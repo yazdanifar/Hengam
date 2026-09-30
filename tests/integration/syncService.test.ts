@@ -257,7 +257,28 @@ describe('SyncService — per-occurrence exceptions', () => {
     expect(patchedBody?.summary).toBe('edited occurrence')
   })
 
-  it('a dirty exception with no known googleId yet is left for a later run', async () => {
+  it('a dirty exception on a not-yet-pushed parent is left for a later run', async () => {
+    const ctx = await setup()
+    await connectAccount(ctx)
+    ctx.syncCalendars.upsertMany([{ calendarId: 'primary', summary: 'Me', primary: true }])
+    const ev = ctx.events.create({
+      title: 'series',
+      color: '#3b82f6',
+      startTs: 1000,
+      endTs: 2000,
+      allDay: false,
+      rrule: { freq: 'daily', interval: 1 }
+    })
+    // Parent has no googleId yet (its own insert hasn't run/succeeded).
+    ctx.events.addException({ eventId: ev.id, occurrenceStartTs: 1500, kind: 'skip' })
+    ctx.http.onJson(/\/events\?/, 200, { items: [], nextSyncToken: 'tok1' })
+
+    await ctx.sync.syncNow('manual')
+
+    expect(ctx.events.listDirtyExceptions()).toHaveLength(1) // still dirty, no instance lookup attempted
+  })
+
+  it('a dirty exception with no known googleId looks up the instance and pushes it', async () => {
     const ctx = await setup()
     await connectAccount(ctx)
     ctx.syncCalendars.upsertMany([{ calendarId: 'primary', summary: 'Me', primary: true }])
@@ -271,11 +292,51 @@ describe('SyncService — per-occurrence exceptions', () => {
     })
     ctx.events.markSynced(ev.id, { calendarId: 'primary', googleId: 'g1' })
     ctx.events.addException({ eventId: ev.id, occurrenceStartTs: 1500, kind: 'skip' })
+
+    let instancesUrl: string | undefined
+    ctx.http.on(/events\/g1\/instances/, (url) => {
+      instancesUrl = url
+      return new Response(
+        JSON.stringify({
+          items: [{ id: 'gx1', recurringEventId: 'g1', originalStartTime: { dateTime: new Date(1500).toISOString() } }]
+        }),
+        { status: 200 }
+      )
+    })
+    let deleted = false
+    ctx.http.on(/events\/gx1$/, (_url, init) => {
+      if (init?.method === 'DELETE') deleted = true
+      return new Response(null, { status: 200 })
+    })
     ctx.http.onJson(/\/events\?/, 200, { items: [], nextSyncToken: 'tok1' })
 
     await ctx.sync.syncNow('manual')
 
-    expect(ctx.events.listDirtyExceptions()).toHaveLength(1) // still dirty, still no googleId
+    expect(instancesUrl).toContain(`originalStart=${encodeURIComponent(new Date(1500).toISOString())}`)
+    expect(deleted).toBe(true)
+    expect(ctx.events.listDirtyExceptions()).toHaveLength(0)
+  })
+
+  it('a dirty exception whose occurrence has no matching Google instance is marked clean without a retry loop', async () => {
+    const ctx = await setup()
+    await connectAccount(ctx)
+    ctx.syncCalendars.upsertMany([{ calendarId: 'primary', summary: 'Me', primary: true }])
+    const ev = ctx.events.create({
+      title: 'series',
+      color: '#3b82f6',
+      startTs: 1000,
+      endTs: 2000,
+      allDay: false,
+      rrule: { freq: 'daily', interval: 1 }
+    })
+    ctx.events.markSynced(ev.id, { calendarId: 'primary', googleId: 'g1' })
+    ctx.events.addException({ eventId: ev.id, occurrenceStartTs: 1500, kind: 'skip' })
+    ctx.http.onJson(/events\/g1\/instances/, 200, { items: [] })
+    ctx.http.onJson(/\/events\?/, 200, { items: [], nextSyncToken: 'tok1' })
+
+    await ctx.sync.syncNow('manual')
+
+    expect(ctx.events.listDirtyExceptions()).toHaveLength(0)
   })
 
   it('pull adopts a cancelled instance of a known recurring event as a skip exception', async () => {

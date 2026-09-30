@@ -73,14 +73,39 @@ export class GoogleCalendarClient {
     )
   }
 
-  async getEvent(calendarId: string, eventId: string, signal?: AbortSignal): Promise<GoogleEventResource> {
-    return this.request<GoogleEventResource>(
+  /** Undefined when Google has no such event at all. A deleted one still comes back, with
+   *  status 'cancelled'. */
+  async getEvent(calendarId: string, eventId: string, signal?: AbortSignal): Promise<GoogleEventResource | undefined> {
+    return this.request<GoogleEventResource | undefined>(
       'GET',
       `${this.cfg.apiBase}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-      { signal }
+      { signal },
+      { allow404: true }
     )
   }
 
+  /** Looks up one occurrence of a recurring event by its original start (see
+   *  mapper.originalStartFor), so a local edit to that occurrence can be pushed as a
+   *  PATCH/DELETE of Google's own instance id instead of waiting for a pull to reveal it.
+   *  Undefined when the parent is gone or has no instance at that start. */
+  async getInstance(
+    calendarId: string,
+    recurringEventId: string,
+    originalStart: string,
+    signal?: AbortSignal
+  ): Promise<GoogleEventResource | undefined> {
+    const qs = new URLSearchParams({ originalStart, showDeleted: 'true', maxResults: '1' })
+    const page = await this.request<{ items: GoogleEventResource[] } | undefined>(
+      'GET',
+      `${this.cfg.apiBase}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(recurringEventId)}/instances?${qs}`,
+      { signal },
+      { allow404: true }
+    )
+    return page?.items?.[0]
+  }
+
+  /** A body carrying a client-chosen `id` that's already taken (even by a deleted event)
+   *  fails with SyncError('conflict'). */
   async insertEvent(calendarId: string, body: GoogleEventLike, signal?: AbortSignal): Promise<GoogleEventResource> {
     return this.request<GoogleEventResource>(
       'POST',
@@ -92,7 +117,7 @@ export class GoogleCalendarClient {
   async patchEvent(
     calendarId: string,
     eventId: string,
-    body: Partial<GoogleEventLike>,
+    body: Partial<GoogleEventLike> & { status?: GoogleEventResource['status'] },
     etag: string | undefined,
     signal?: AbortSignal
   ): Promise<GoogleEventResource> {
@@ -103,13 +128,16 @@ export class GoogleCalendarClient {
     )
   }
 
-  async deleteEvent(calendarId: string, eventId: string, etag: string | undefined, signal?: AbortSignal): Promise<void> {
-    await this.request(
+  /** Already-gone (404, or 410 for an event deleted earlier) counts as success. Resolves
+   *  false only when Google has never had an event with this id. */
+  async deleteEvent(calendarId: string, eventId: string, etag: string | undefined, signal?: AbortSignal): Promise<boolean> {
+    const res = await this.request<'missing' | undefined>(
       'DELETE',
       `${this.cfg.apiBase}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
       { signal, etag },
-      { allow404: true }
+      { allow404: true, allowGone: true }
     )
+    return res !== 'missing'
   }
 
   async listColors(signal?: AbortSignal): Promise<Record<string, { background: string; foreground: string }>> {
@@ -125,7 +153,7 @@ export class GoogleCalendarClient {
     method: string,
     url: string,
     opts: { signal?: AbortSignal; body?: unknown; etag?: string },
-    flags: { allow404?: boolean; listCall?: boolean } = {}
+    flags: { allow404?: boolean; allowGone?: boolean; listCall?: boolean } = {}
   ): Promise<T> {
     let attempt = 0
     let retried401 = false
@@ -152,13 +180,14 @@ export class GoogleCalendarClient {
         return (await res.json()) as T
       }
 
-      if (res.status === 404 && flags.allow404) return undefined as T
+      if (res.status === 404 && flags.allow404) return (method === 'DELETE' ? 'missing' : undefined) as T
+      if (res.status === 410 && flags.allowGone) return undefined as T
       if (res.status === 401 && !retried401) {
         retried401 = true
         this.auth.invalidateAccessToken()
         continue
       }
-      if (res.status === 412) throw new SyncError('conflict', await safeText(res))
+      if (res.status === 409 || res.status === 412) throw new SyncError('conflict', await safeText(res))
       if (res.status === 410 && flags.listCall) throw new SyncError('sync_token_expired', await safeText(res))
 
       const retryable = res.status === 429 || res.status >= 500 || (res.status === 403 && (await isRateLimited(res)))

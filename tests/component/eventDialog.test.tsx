@@ -14,7 +14,8 @@ const NON_RECURRING: EventRecord = {
   reminders: [],
   createdAt: 0,
   updatedAt: 0,
-  dirty: true
+  dirty: true,
+  editSeq: 0
 }
 
 const RECURRING: EventRecord = {

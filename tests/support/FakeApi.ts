@@ -55,6 +55,7 @@ export function createFakeApi(
       create: async (input): Promise<EventRecord> => ({
         id: 'fake-id',
         dirty: true,
+        editSeq: 0,
         createdAt: 0,
         updatedAt: 0,
         reminders: [],

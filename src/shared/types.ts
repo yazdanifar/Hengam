@@ -28,6 +28,9 @@ export interface EventRecord {
   etag?: string
   dirty: boolean
   deletedAt?: number
+  /** Bumped on every local content change; lets a push that's in flight tell whether the
+   *  row it read is still the row on disk before marking it clean. */
+  editSeq: number
 }
 
 export type ExceptionKind = 'skip' | 'override'

@@ -135,6 +135,31 @@ const MIGRATIONS: string[] = [
     failing_since INTEGER
   );
   CREATE INDEX idx_notifications_created ON notifications(created_at);
+  `,
+  // v6: each event's Google identity, set aside per account on disconnect and restored on
+  // reconnecting to that same account, so a reconnect re-links events instead of pushing
+  // every one of them to Google a second time.
+  `
+  CREATE TABLE sync_identity_stash (
+    account TEXT NOT NULL,
+    event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    calendar_id TEXT NOT NULL,
+    google_id TEXT,
+    etag TEXT,
+    remote_updated_at INTEGER,
+    dirty INTEGER NOT NULL,
+    stashed_at INTEGER NOT NULL,
+    PRIMARY KEY (account, event_id)
+  );
+  `,
+  // v7: a per-row edit counter, bumped on every local content change. A push reads it
+  // before sending and passes it back when marking the row synced, so a local edit or
+  // delete made while that push was in flight — which the sent body doesn't reflect —
+  // is detected instead of being marked clean and silently dropped. Also lets a pull skip
+  // overwriting a row with unpushed local changes instead of discarding them.
+  `
+  ALTER TABLE events ADD COLUMN edit_seq INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE event_exceptions ADD COLUMN edit_seq INTEGER NOT NULL DEFAULT 0;
   `
 ]
 

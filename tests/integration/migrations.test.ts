@@ -12,10 +12,10 @@ describe('migrations', () => {
     expect(after).toEqual(before)
   })
 
-  it('lands on user_version 5', () => {
+  it('lands on user_version 7', () => {
     const db = new Database(':memory:')
     migrate(db)
-    expect(db.pragma('user_version', { simple: true })).toBe(5)
+    expect(db.pragma('user_version', { simple: true })).toBe(7)
   })
 
   it('the events table has no categories table or category_id column left', () => {
@@ -62,7 +62,7 @@ describe('migrations', () => {
 
     migrate(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(5)
+    expect(db.pragma('user_version', { simple: true })).toBe(7)
     const row = db.prepare('SELECT * FROM events WHERE id = ?').get('ev1') as {
       title: string
       color: string
@@ -108,7 +108,7 @@ describe('migrations', () => {
 
     migrate(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(5)
+    expect(db.pragma('user_version', { simple: true })).toBe(7)
     const row = db.prepare('SELECT reminders_json FROM events WHERE id = ?').get('ev1') as { reminders_json: string }
     expect(JSON.parse(row.reminders_json)).toEqual([15])
     const fired = db.prepare('SELECT minutes_before FROM fired_reminders WHERE event_id = ?').get('ev1') as {

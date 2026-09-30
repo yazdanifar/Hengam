@@ -16,7 +16,8 @@ function baseEvent(overrides: Partial<EventRecord> = {}): EventRecord {
     createdAt: 0,
     updatedAt: 0,
     dirty: false,
-    ...overrides
+    ...overrides,
+    editSeq: overrides.editSeq ?? 0
   }
 }
 

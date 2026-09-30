@@ -9,6 +9,8 @@ import type { RecurrenceRule } from '@shared/types'
 const WEEKDAY_CODES = ['SA', 'SU', 'MO', 'TU', 'WE', 'TH', 'FR'] // index 0=Saturday, matching our byWeekday convention
 
 export interface GoogleEventLike {
+  /** Only ever set on insert, to make the insert idempotent. */
+  id?: string
   summary: string
   description?: string
   start: { date?: string; dateTime?: string; timeZone?: string }
@@ -28,6 +30,9 @@ export interface LocalEventLike {
   rrule?: RecurrenceRule
   reminders?: number[]
   colorId?: string
+  /** Occurrence starts (of this event's own rule) to leave out of a Jalali RDATE list —
+   *  the local starts of occurrences the user has skipped. */
+  skipStarts?: number[]
 }
 
 function toRfc3339(ts: number): string {
@@ -39,21 +44,78 @@ function toDateOnly(ts: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/** Generates the Jalali monthly/yearly occurrence starts as RDATE values, `years` ahead. */
-function generateJalaliRDates(startTs: number, rule: RecurrenceRule, years: number): string[] {
+/** The `originalStart` value Google's `events.instances` endpoint expects to look up one
+ *  occurrence — an RFC 3339 instant for timed events, a bare date for all-day ones. Mirrors
+ *  how a pulled instance's `originalStartTime` is turned back into an occurrenceStartTs. */
+export function originalStartFor(occurrenceStartTs: number, allDay: boolean): string {
+  return allDay ? toDateOnly(occurrenceStartTs) : toRfc3339(occurrenceStartTs)
+}
+
+/** The starts of a Jalali monthly/yearly rule's occurrences after the first (the event's
+ *  own start, never repeated in RDATE), `years` ahead. Mirrors the local expansion in
+ *  recurrence.ts exactly, so the timestamps compare equal to local occurrence starts. */
+function jalaliOccurrenceStarts(startTs: number, rule: RecurrenceRule, years: number): number[] {
   const startJ = toJalali(new Date(startTs))
   const timeOfDay = startTs - new Date(startTs).setHours(0, 0, 0, 0)
   const stepMonths = rule.freq === 'monthly' ? rule.interval : rule.interval * 12
   const count = rule.count ?? Math.ceil((years * 12) / stepMonths)
-  const out: string[] = []
+  const out: number[] = []
   for (let i = 1; i < count; i++) {
-    // start from i=1: the first occurrence is the event's own start, not repeated in RDATE
     const occJ = addJalaliMonths(startJ.jy, startJ.jm, startJ.jd, stepMonths * i)
     const occTs = toGregorian(occJ.jy, occJ.jm, occJ.jd).getTime() + timeOfDay
     if (rule.until && occTs > rule.until) break
-    out.push(toRfc3339(occTs).replace(/\.\d{3}Z$/, 'Z'))
+    out.push(occTs)
   }
   return out
+}
+
+/** Generates the Jalali monthly/yearly occurrence starts as RDATE values, `years` ahead.
+ *  Occurrences whose start is in `skipStarts` (locally skipped occurrences) are left out,
+ *  so a re-push doesn't resurrect a deleted occurrence on Google. */
+function generateJalaliRDates(startTs: number, rule: RecurrenceRule, years: number, skipStarts?: number[]): string[] {
+  const skip = new Set(skipStarts)
+  return jalaliOccurrenceStarts(startTs, rule, years)
+    .filter((ts) => !skip.has(ts))
+    .map((ts) => toRfc3339(ts).replace(/\.\d{3}Z$/, 'Z'))
+}
+
+const RDATE_YEARS = 3
+
+/** One RDATE value as a UTC instant: our own `2026-02-01T09:00:00Z` form, or iCal's basic
+ *  `20260201T090000Z` (in case Google normalizes it). NaN for anything else. */
+function parseRDateValue(v: string): number {
+  const basic = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(v)
+  if (basic) {
+    const [, y, mo, d, h, mi, se] = basic.map(Number)
+    return Date.UTC(y, mo - 1, d, h, mi, se)
+  }
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(v) ? Date.parse(v) : NaN
+}
+
+/**
+ * The occurrence starts a Jalali monthly/yearly event's rule produces but its RDATE list
+ * leaves out — occurrences skipped (by any Hengam device) through the RDATE list, which
+ * Google never reports as cancelled instances. Empty when the event isn't a Jalali series,
+ * or when any RDATE value can't be read (never guess a deletion from a format we don't know).
+ */
+export function jalaliSkippedStarts(g: GoogleEventLike): number[] {
+  const ruleJson = g.extendedProperties?.private?.jalaliRule
+  if (!ruleJson) return []
+  const rule = JSON.parse(ruleJson) as RecurrenceRule
+  if (!isJalaliOnlyFreq(rule.freq)) return []
+
+  const present = new Set<number>()
+  for (const line of g.recurrence ?? []) {
+    const colon = line.indexOf(':')
+    if (!/^RDATE[;:]/.test(line) || colon < 0) continue
+    for (const value of line.slice(colon + 1).split(',')) {
+      const ts = parseRDateValue(value.trim())
+      if (Number.isNaN(ts)) return []
+      present.add(ts)
+    }
+  }
+  const { startTs } = fromGoogleEvent(g)
+  return jalaliOccurrenceStarts(startTs, rule, RDATE_YEARS).filter((ts) => !present.has(ts))
 }
 
 function isJalaliOnlyFreq(freq: RecurrenceRule['freq']): boolean {
@@ -79,7 +141,7 @@ export function toGoogleEvent(ev: LocalEventLike): GoogleEventLike {
 
   if (ev.rrule) {
     if (isJalaliOnlyFreq(ev.rrule.freq)) {
-      const rdates = generateJalaliRDates(ev.startTs, ev.rrule, 3)
+      const rdates = generateJalaliRDates(ev.startTs, ev.rrule, RDATE_YEARS, ev.skipStarts)
       g.recurrence = rdates.length ? [`RDATE:${rdates.join(',')}`] : undefined
       g.extendedProperties = { private: { jalaliRule: JSON.stringify(ev.rrule) } }
     } else {

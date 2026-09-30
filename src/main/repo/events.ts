@@ -23,6 +23,7 @@ interface EventRow {
   dirty: number
   deleted_at: number | null
   remote_updated_at: number | null
+  edit_seq: number
 }
 
 function rowToEvent(row: EventRow): EventRecord {
@@ -42,7 +43,8 @@ function rowToEvent(row: EventRow): EventRecord {
     googleId: row.google_id ?? undefined,
     etag: row.etag ?? undefined,
     dirty: !!row.dirty,
-    deletedAt: row.deleted_at ?? undefined
+    deletedAt: row.deleted_at ?? undefined,
+    editSeq: row.edit_seq
   }
 }
 
@@ -71,6 +73,10 @@ export interface MarkSyncedInput {
   googleId: string
   etag?: string
   remoteUpdatedAt?: number
+  /** The row's editSeq at the moment this push read it. When given, dirty is cleared only
+   *  if the row is still at that editSeq — i.e. nothing changed it while the push was in
+   *  flight. Omitted by call sites (and tests) that aren't racing a concurrent edit. */
+  expectedEditSeq?: number
 }
 
 export interface UpsertFromRemoteInput {
@@ -81,6 +87,10 @@ export interface UpsertFromRemoteInput {
   local: CreateEventInput
   /** Adopts this local id instead of inserting a new row (identity match #2 — hengamId). */
   adoptLocalId?: string
+  /** Overwrites a dirty existing row anyway. Used only by resolveConflict, which has
+   *  already decided — by comparing timestamps — that this particular remote write should
+   *  win over the pending local edit; every other caller leaves a dirty row untouched. */
+  forceOverwriteDirty?: boolean
 }
 
 export interface SyncEventException extends EventException {
@@ -88,6 +98,7 @@ export interface SyncEventException extends EventException {
   etag?: string
   remoteUpdatedAt?: number
   dirty?: boolean
+  editSeq?: number
 }
 
 interface ExceptionRow {
@@ -99,6 +110,7 @@ interface ExceptionRow {
   etag: string | null
   dirty: number
   remote_updated_at: number | null
+  edit_seq: number
 }
 
 function rowToException(row: ExceptionRow): SyncEventException {
@@ -110,7 +122,8 @@ function rowToException(row: ExceptionRow): SyncEventException {
     googleId: row.google_id ?? undefined,
     etag: row.etag ?? undefined,
     dirty: !!row.dirty,
-    remoteUpdatedAt: row.remote_updated_at ?? undefined
+    remoteUpdatedAt: row.remote_updated_at ?? undefined,
+    editSeq: row.edit_seq
   }
 }
 
@@ -138,7 +151,8 @@ export class EventsRepo {
       calendarId: opts.calendarId,
       googleId: opts.googleId,
       etag: opts.etag,
-      dirty
+      dirty,
+      editSeq: 0
     }
     this.db
       .prepare(
@@ -189,7 +203,8 @@ export class EventsRepo {
     this.db
       .prepare(
         `UPDATE events SET title=@title, notes=@notes, color=@color, start_ts=@startTs, end_ts=@endTs,
-         all_day=@allDay, rrule_json=@rruleJson, reminders_json=@remindersJson, updated_at=@updatedAt, dirty=1
+         all_day=@allDay, rrule_json=@rruleJson, reminders_json=@remindersJson, updated_at=@updatedAt, dirty=1,
+         edit_seq = edit_seq + 1
          WHERE id=@id`
       )
       .run({
@@ -222,7 +237,9 @@ export class EventsRepo {
 
   /** Soft-delete: kept until pushed to Google, then purged by the sync engine. */
   softDelete(id: string): void {
-    this.db.prepare('UPDATE events SET deleted_at = ?, dirty = 1 WHERE id = ?').run(this.clock.now(), id)
+    this.db
+      .prepare('UPDATE events SET deleted_at = ?, dirty = 1, edit_seq = edit_seq + 1 WHERE id = ?')
+      .run(this.clock.now(), id)
   }
 
   purgeDeleted(id: string): void {
@@ -239,10 +256,11 @@ export class EventsRepo {
           ?.startTs ?? e.occurrenceStartTs
       this.db
         .prepare(
-          `INSERT INTO event_exceptions (event_id, occurrence_start_ts, kind, override_json, dirty)
-           VALUES (@eventId, @occurrenceStartTs, @kind, @overrideJson, 1)
+          `INSERT INTO event_exceptions (event_id, occurrence_start_ts, kind, override_json, dirty, edit_seq)
+           VALUES (@eventId, @occurrenceStartTs, @kind, @overrideJson, 1, 1)
            ON CONFLICT(event_id, occurrence_start_ts)
-           DO UPDATE SET kind=excluded.kind, override_json=excluded.override_json, dirty=1`
+           DO UPDATE SET kind=excluded.kind, override_json=excluded.override_json, dirty=1,
+             edit_seq = event_exceptions.edit_seq + 1`
         )
         .run({
           eventId: e.eventId,
@@ -265,7 +283,9 @@ export class EventsRepo {
       if (e.kind === 'skip') {
         const parent = this.getById(e.eventId)
         if (parent?.rrule && (parent.rrule.freq === 'monthly' || parent.rrule.freq === 'yearly')) {
-          this.db.prepare('UPDATE events SET dirty = 1, updated_at = ? WHERE id = ?').run(this.clock.now(), e.eventId)
+          this.db
+            .prepare('UPDATE events SET dirty = 1, updated_at = ?, edit_seq = edit_seq + 1 WHERE id = ?')
+            .run(this.clock.now(), e.eventId)
         }
       }
     })
@@ -319,13 +339,41 @@ export class EventsRepo {
     return rows.map(rowToEvent)
   }
 
-  /** After a successful push: records identity + etag and clears the dirty flag. */
+  /**
+   * After a successful push: records identity + etag. Clears dirty unconditionally when
+   * `expectedEditSeq` is omitted; otherwise only if the row's editSeq still matches it — a
+   * later local edit or delete bumped editSeq while the push was in flight, so the row
+   * (whose new content the push never sent) stays dirty and is retried next run.
+   */
   markSynced(id: string, sync: MarkSyncedInput): void {
+    if (sync.expectedEditSeq === undefined) {
+      this.db
+        .prepare(
+          `UPDATE events SET calendar_id = ?, google_id = ?, etag = ?, remote_updated_at = ?, dirty = 0 WHERE id = ?`
+        )
+        .run(sync.calendarId, sync.googleId, sync.etag ?? null, sync.remoteUpdatedAt ?? null, id)
+      return
+    }
     this.db
       .prepare(
-        `UPDATE events SET calendar_id = ?, google_id = ?, etag = ?, remote_updated_at = ?, dirty = 0 WHERE id = ?`
+        `UPDATE events SET calendar_id = ?, google_id = ?, etag = ?, remote_updated_at = ?,
+         dirty = CASE WHEN edit_seq = ? THEN 0 ELSE 1 END
+         WHERE id = ?`
       )
-      .run(sync.calendarId, sync.googleId, sync.etag ?? null, sync.remoteUpdatedAt ?? null, id)
+      .run(
+        sync.calendarId,
+        sync.googleId,
+        sync.etag ?? null,
+        sync.remoteUpdatedAt ?? null,
+        sync.expectedEditSeq,
+        id
+      )
+  }
+
+  /** Records which calendar a not-yet-confirmed insert is going to, before it's sent, so a
+   *  retry after a lost response targets that same calendar even if the default changed. */
+  setPendingInsertCalendar(id: string, calendarId: string): void {
+    this.db.prepare('UPDATE events SET calendar_id = ? WHERE id = ? AND google_id IS NULL').run(calendarId, id)
   }
 
   /** Clears dirty without touching identity (a push that turned out to be a no-op). */
@@ -337,12 +385,18 @@ export class EventsRepo {
    * Applies a remote event. Matches on (calendar_id, google_id) first, then adopts an
    * unsynced local row when `adoptLocalId` is supplied, otherwise inserts new. Never
    * resurrects a locally-deleted row unless the remote `updated` is newer than the local
-   * deleted_at.
+   * deleted_at. Never overwrites a row with local edits not yet pushed — those win until
+   * the next push either sends them or hits a real conflict (Google changed too), which
+   * markSynced/resolveConflict adjudicate; a pull silently discarding them would otherwise
+   * make the edit vanish without ever reaching Google.
    */
   upsertFromRemote(input: UpsertFromRemoteInput): string {
     const existing = this.findByGoogleId(input.calendarId, input.googleId)
     if (existing) {
-      if (existing.deletedAt && (input.remoteUpdatedAt ?? 0) <= existing.deletedAt) {
+      if (existing.deletedAt) {
+        if ((input.remoteUpdatedAt ?? 0) <= existing.deletedAt) return existing.id
+        // else: the remote change is newer than our delete — falls through and resurrects.
+      } else if (existing.dirty && !input.forceOverwriteDirty) {
         return existing.id
       }
       const remoteReminders = normalizeReminders(input.local.reminders ?? [])
@@ -350,7 +404,8 @@ export class EventsRepo {
         .prepare(
           `UPDATE events SET title=@title, notes=@notes, color=@color, start_ts=@startTs, end_ts=@endTs,
            all_day=@allDay, rrule_json=@rruleJson, reminders_json=@remindersJson, etag=@etag,
-           remote_updated_at=@remoteUpdatedAt, dirty=0, deleted_at=NULL, updated_at=@updatedAt
+           remote_updated_at=@remoteUpdatedAt, dirty=0, deleted_at=NULL, updated_at=@updatedAt,
+           edit_seq = edit_seq + 1
            WHERE id=@id`
         )
         .run({
@@ -373,14 +428,15 @@ export class EventsRepo {
 
     if (input.adoptLocalId) {
       const local = this.getByIdIncludingDeleted(input.adoptLocalId)
-      if (local && !local.googleId) {
-        this.markSynced(input.adoptLocalId, {
-          calendarId: input.calendarId,
-          googleId: input.googleId,
-          etag: input.etag,
-          remoteUpdatedAt: input.remoteUpdatedAt
-        })
-        return input.adoptLocalId
+      // No googleId: an insert whose response never arrived. Same googleId: the event was
+      // moved to this calendar on Google (the id survives a move).
+      if (local && (!local.googleId || local.googleId === input.googleId)) {
+        this.db
+          .prepare('UPDATE events SET calendar_id = ?, google_id = ?, etag = ?, remote_updated_at = ? WHERE id = ?')
+          .run(input.calendarId, input.googleId, input.etag ?? null, input.remoteUpdatedAt, local.id)
+        // Local edits (or a local delete) not yet pushed win; the next push sends them.
+        if (local.dirty) return local.id
+        return this.upsertFromRemote({ ...input, adoptLocalId: undefined })
       }
     }
 
@@ -406,6 +462,43 @@ export class EventsRepo {
     this.db.exec('UPDATE event_exceptions SET google_id = NULL, etag = NULL, dirty = 1')
   }
 
+  /** Disconnect / account switch: sets every event's Google identity aside under `account`,
+   *  then strips it (see clearAllSyncIdentity). */
+  stashSyncIdentity(account: string): void {
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM sync_identity_stash WHERE account = ?').run(account)
+      this.db
+        .prepare(
+          `INSERT INTO sync_identity_stash
+             (account, event_id, calendar_id, google_id, etag, remote_updated_at, dirty, stashed_at)
+           SELECT ?, id, calendar_id, google_id, etag, remote_updated_at, dirty, ?
+           FROM events WHERE calendar_id IS NOT NULL`
+        )
+        .run(account, this.clock.now())
+      this.clearAllSyncIdentity()
+    })()
+  }
+
+  /** Reconnecting to `account`: re-links events to the Google identity they had with it.
+   *  An event stays dirty only if it had unpushed changes then, or changed since. */
+  restoreSyncIdentity(account: string): void {
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE OR IGNORE events SET
+             calendar_id = s.calendar_id, google_id = s.google_id, etag = s.etag,
+             remote_updated_at = s.remote_updated_at,
+             dirty = CASE WHEN s.dirty = 1 OR events.deleted_at IS NOT NULL OR events.updated_at > s.stashed_at
+                          THEN 1 ELSE 0 END
+           FROM sync_identity_stash s
+           WHERE s.account = ? AND s.event_id = events.id
+             AND events.calendar_id IS NULL AND events.google_id IS NULL`
+        )
+        .run(account)
+      this.db.prepare('DELETE FROM sync_identity_stash WHERE account = ?').run(account)
+    })()
+  }
+
   // ---- exceptions / sync -----------------------------------------------------
 
   listDirtyExceptions(limit = 500): SyncEventException[] {
@@ -413,17 +506,35 @@ export class EventsRepo {
     return rows.map(rowToException)
   }
 
+  /** Same expectedEditSeq contract as markSynced — see there. */
   markExceptionSynced(
     eventId: string,
     occurrenceStartTs: number,
-    sync: { googleId: string; etag?: string; remoteUpdatedAt?: number }
+    sync: { googleId: string; etag?: string; remoteUpdatedAt?: number; expectedEditSeq?: number }
   ): void {
+    if (sync.expectedEditSeq === undefined) {
+      this.db
+        .prepare(
+          `UPDATE event_exceptions SET google_id = ?, etag = ?, remote_updated_at = ?, dirty = 0
+           WHERE event_id = ? AND occurrence_start_ts = ?`
+        )
+        .run(sync.googleId, sync.etag ?? null, sync.remoteUpdatedAt ?? null, eventId, occurrenceStartTs)
+      return
+    }
     this.db
       .prepare(
-        `UPDATE event_exceptions SET google_id = ?, etag = ?, remote_updated_at = ?, dirty = 0
+        `UPDATE event_exceptions SET google_id = ?, etag = ?, remote_updated_at = ?,
+         dirty = CASE WHEN edit_seq = ? THEN 0 ELSE 1 END
          WHERE event_id = ? AND occurrence_start_ts = ?`
       )
-      .run(sync.googleId, sync.etag ?? null, sync.remoteUpdatedAt ?? null, eventId, occurrenceStartTs)
+      .run(
+        sync.googleId,
+        sync.etag ?? null,
+        sync.remoteUpdatedAt ?? null,
+        sync.expectedEditSeq,
+        eventId,
+        occurrenceStartTs
+      )
   }
 
   findExceptionByGoogleId(googleId: string): SyncEventException | undefined {
@@ -433,6 +544,8 @@ export class EventsRepo {
     return row ? rowToException(row) : undefined
   }
 
+  /** As with upsertFromRemote: a local change to this occurrence not yet pushed wins and is
+   *  left untouched, instead of a pull silently discarding it before it ever reaches Google. */
   upsertExceptionFromRemote(input: {
     eventId: string
     occurrenceStartTs: number
@@ -442,6 +555,11 @@ export class EventsRepo {
     etag?: string
     remoteUpdatedAt?: number
   }): void {
+    const current = this.db
+      .prepare('SELECT dirty FROM event_exceptions WHERE event_id = ? AND occurrence_start_ts = ?')
+      .get(input.eventId, input.occurrenceStartTs) as { dirty: number } | undefined
+    if (current?.dirty) return
+
     this.db
       .prepare(
         `INSERT INTO event_exceptions

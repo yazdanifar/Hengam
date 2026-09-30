@@ -4,6 +4,7 @@ import { sameJalaliDate, toJalali } from '@shared/jalali'
 import { useAppStore } from '../store'
 import { useApi } from '../apiContext'
 import { useHolidays } from '../useHolidays'
+import { useNowTick } from '../useNowTick'
 import { useEventDialog } from '../useEventDialog'
 import { TimeGrid } from '../components/TimeGrid/TimeGrid'
 import { EventDialog } from '../components/EventDialog'
@@ -26,7 +27,7 @@ export function DayView() {
   }, [api, dayStart, dayEnd, dataVersion])
 
   const info = holidays?.get(selectedDate)
-  const isToday = useMemo(() => sameJalaliDate(selectedDate, toJalali(new Date())), [selectedDate])
+  const isToday = sameJalaliDate(selectedDate, toJalali(useNowTick()))
 
   return (
     <div className="view-body">

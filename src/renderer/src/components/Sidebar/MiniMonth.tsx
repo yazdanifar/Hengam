@@ -3,12 +3,13 @@ import { WEEKDAY_LABELS, monthMatrix, sameJalaliDate, toGregorian, toJalali } fr
 import { toFaDigits } from '@shared/format'
 import { useAppStore } from '../../store'
 import { useHolidays } from '../../useHolidays'
+import { useNowTick } from '../../useNowTick'
 
 export function MiniMonth() {
   const { selectedDate, goto } = useAppStore()
   const cells = useMemo(() => monthMatrix(selectedDate.jy, selectedDate.jm), [selectedDate.jy, selectedDate.jm])
   const holidays = useHolidays(selectedDate.jy)
-  const today = useMemo(() => toJalali(new Date()), [])
+  const today = toJalali(useNowTick())
 
   return (
     <table className="mini-month">

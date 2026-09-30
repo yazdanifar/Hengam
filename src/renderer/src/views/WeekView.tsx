@@ -5,6 +5,7 @@ import { toFaDigits as digits } from '@shared/format'
 import { useAppStore } from '../store'
 import { useApi } from '../apiContext'
 import { useHolidays } from '../useHolidays'
+import { useNowTick } from '../useNowTick'
 import { useEventDialog } from '../useEventDialog'
 import { TimeGrid } from '../components/TimeGrid/TimeGrid'
 import { EventDialog } from '../components/EventDialog'
@@ -17,7 +18,7 @@ export function WeekView() {
 
   const weekStart = useMemo(() => startOfJalaliWeek(selectedGregorian), [selectedGregorian])
   const weekEnd = useMemo(() => new Date(weekStart.getTime() + 7 * 86400_000), [weekStart])
-  const today = useMemo(() => toJalali(new Date()), [])
+  const today = toJalali(useNowTick())
 
   const refetch = () => api.events.range(weekStart.getTime(), weekEnd.getTime()).then(setOccurrences)
   const { dialog, openCreate, openEdit, close, handleSave, handleDelete } = useEventDialog(refetch)

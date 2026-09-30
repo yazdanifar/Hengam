@@ -12,6 +12,7 @@ import { toFaDigits } from '@shared/format'
 import { useAppStore } from '../store'
 import { useApi } from '../apiContext'
 import { useHolidays } from '../useHolidays'
+import { useNowTick } from '../useNowTick'
 import { useEventDialog } from '../useEventDialog'
 import { EventDialog } from '../components/EventDialog'
 
@@ -22,7 +23,7 @@ export function MonthView() {
   const { selectedDate, goto, setView, dataVersion } = useAppStore()
   const holidays = useHolidays(selectedDate.jy)
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
-  const today = useMemo(() => toJalali(new Date()), [])
+  const today = toJalali(useNowTick())
 
   const cells = useMemo(() => monthMatrix(selectedDate.jy, selectedDate.jm), [selectedDate.jy, selectedDate.jm])
   const rangeStart = useMemo(() => toGregorian(cells[0].jy, cells[0].jm, cells[0].jd).getTime(), [cells])

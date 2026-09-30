@@ -26,9 +26,10 @@ describe('loadGoogleConfig', () => {
     expect(cfg?.clientSecret).toBe('meta-secret')
   })
 
-  it('includes the calendar scope and stable endpoints', () => {
+  it('includes the calendar scopes and stable endpoints', () => {
     const cfg = loadGoogleConfig({ HENGAM_GOOGLE_CLIENT_ID: 'id', HENGAM_GOOGLE_CLIENT_SECRET: 'secret' }, undefined)
-    expect(cfg?.scopes).toContain('https://www.googleapis.com/auth/calendar')
+    expect(cfg?.scopes).toContain('https://www.googleapis.com/auth/calendar.events')
+    expect(cfg?.scopes).toContain('https://www.googleapis.com/auth/calendar.calendarlist.readonly')
     expect(cfg?.authEndpoint).toMatch(/^https:\/\/accounts\.google\.com/)
     expect(cfg?.tokenEndpoint).toMatch(/^https:\/\/oauth2\.googleapis\.com/)
   })

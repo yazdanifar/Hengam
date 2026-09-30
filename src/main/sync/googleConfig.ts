@@ -18,7 +18,17 @@ const DEFAULT_ENDPOINTS = {
   apiBase: 'https://www.googleapis.com/calendar/v3'
 }
 
-const SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/calendar']
+// Narrower than the full `calendar` scope: `calendar.events` covers all event CRUD, and
+// `calendar.calendarlist.readonly` covers listCalendars()/listColors() — the only two
+// GoogleCalendarClient calls that events-only access doesn't reach. Together these are
+// "sensitive" scopes rather than "restricted", which skips the paid security assessment
+// full `calendar` access requires for OAuth verification.
+const SCOPES = [
+  'openid',
+  'email',
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly'
+]
 
 /**
  * Resolution order: process.env.HENGAM_GOOGLE_* (lets a developer run without a .env, and

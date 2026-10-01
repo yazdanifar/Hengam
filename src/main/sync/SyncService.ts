@@ -12,7 +12,7 @@ import type { MetaRepo } from '../repo/meta'
 import type { GoogleAuth } from './GoogleAuth'
 import type { GoogleCalendarClient, GoogleEventResource } from './GoogleCalendarClient'
 import { fromGoogleEvent, jalaliSkippedStarts, originalStartFor, toGoogleEvent, type GoogleEventLike } from './mapper'
-import { colorIdForHex, hexForColorId } from './colorMap'
+import { colorIdForHex, resolveInboundHex } from './colorMap'
 import { GoogleAuthError, SyncError } from './errors'
 import { DEFAULT_EVENT_COLOR } from '../db'
 
@@ -430,7 +430,7 @@ export class SyncService {
           this.events.markExceptionSynced(ex.eventId, ex.occurrenceStartTs, { googleId, expectedEditSeq: ex.editSeq })
         } else {
           const override = ex.override ?? {}
-          const colorId = colorIdForHex(parent.color, palette)
+          const colorId = colorIdForHex(override.color ?? parent.color, palette)
           const body = toGoogleEvent({
             title: override.title ?? parent.title,
             notes: override.notes ?? parent.notes,
@@ -644,11 +644,19 @@ export class SyncService {
           })
         } else {
           const mapped = fromGoogleEvent(item)
+          const prior = this.events
+            .listExceptions(parent.id)
+            .find((ex) => ex.occurrenceStartTs === occurrenceStartTs)?.override
+          // An instance whose color still matches the series' colorId inherits the series color.
+          const color =
+            mapped.colorId && mapped.colorId !== colorIdForHex(parent.color, palette)
+              ? resolveInboundHex(mapped.colorId, palette, prior?.color, DEFAULT_EVENT_COLOR)
+              : undefined
           this.events.upsertExceptionFromRemote({
             eventId: parent.id,
             occurrenceStartTs,
             kind: 'override',
-            override: { title: mapped.title, notes: mapped.notes, startTs: mapped.startTs, endTs: mapped.endTs },
+            override: { title: mapped.title, notes: mapped.notes, startTs: mapped.startTs, endTs: mapped.endTs, color },
             googleId: item.id,
             etag: item.etag,
             remoteUpdatedAt
@@ -665,8 +673,10 @@ export class SyncService {
       }
 
       const mapped = fromGoogleEvent(item)
-      const color = hexForColorId(mapped.colorId, palette, DEFAULT_EVENT_COLOR)
       const hengamId = item.extendedProperties?.private?.[HENGAM_ID_PROP]
+      const current =
+        this.events.findByGoogleId(calendarId, item.id) ?? (hengamId ? this.events.getById(hengamId) : undefined)
+      const color = resolveInboundHex(mapped.colorId, palette, current?.color, DEFAULT_EVENT_COLOR)
 
       const localId = this.events.upsertFromRemote({
         calendarId,

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Occurrence } from '@shared/types'
+import { textColorOn } from '@shared/colors'
 import {
   WEEKDAY_LABELS,
   isFriday,
@@ -77,7 +78,7 @@ export function MonthView() {
                 <div
                   key={`${o.eventId}-${o.occurrenceStartTs}`}
                   className="month-chip"
-                  style={{ background: o.color }}
+                  style={{ background: o.color, color: textColorOn(o.color) }}
                   onClick={(e) => {
                     e.stopPropagation()
                     openEdit(o)

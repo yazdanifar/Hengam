@@ -75,6 +75,43 @@ describe('EventDialog — editing', () => {
     expect(scope).toBeUndefined()
   })
 
+  it('picking a color swatch saves that Google palette color', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn()
+    render(
+      <EventDialog
+        initialDate={new Date(NON_RECURRING.startTs)}
+        existing={{ ...NON_RECURRING, color: '#5484ed' }}
+        onClose={() => {}}
+        onSave={onSave}
+      />
+    )
+    expect(screen.getAllByRole('radio')).toHaveLength(11)
+    expect(screen.getByRole('radio', { name: 'بلوبری' })).toHaveAttribute('aria-checked', 'true')
+    await user.click(screen.getByRole('radio', { name: 'گوجه‌ای' }))
+    expect(screen.getByRole('radio', { name: 'گوجه‌ای' })).toHaveAttribute('aria-checked', 'true')
+    await user.click(screen.getByText('ذخیره'))
+
+    expect(onSave.mock.calls[0][0].color).toBe('#dc2127')
+  })
+
+  it('new events default to Blueberry', () => {
+    render(<EventDialog initialDate={new Date(NON_RECURRING.startTs)} onClose={() => {}} onSave={() => {}} />)
+    expect(screen.getByRole('radio', { name: 'بلوبری' })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('keeps an off-palette color selectable', () => {
+    render(
+      <EventDialog
+        initialDate={new Date(NON_RECURRING.startTs)}
+        existing={{ ...NON_RECURRING, color: '#123456' }}
+        onClose={() => {}}
+        onSave={() => {}}
+      />
+    )
+    expect(screen.getByRole('radio', { name: 'رنگ فعلی' })).toHaveAttribute('aria-checked', 'true')
+  })
+
   it('saving a recurring event shows a scope prompt and forwards the chosen scope', async () => {
     const user = userEvent.setup()
     const onSave = vi.fn()

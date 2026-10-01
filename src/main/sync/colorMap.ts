@@ -36,3 +36,18 @@ export function hexForColorId(
   if (!colorId || !palette[colorId]) return fallbackHex
   return palette[colorId].background
 }
+
+/** Hex color to store for an inbound colorId. Google only has a small palette, so a
+ *  custom local color is pushed as its nearest colorId; when that same colorId comes back
+ *  the local color is kept rather than snapped to the palette swatch. */
+export function resolveInboundHex(
+  colorId: string | undefined,
+  palette: Record<string, { background: string }>,
+  currentHex: string | undefined,
+  fallbackHex: string
+): string {
+  if (colorId && currentHex && palette[colorId] && colorIdForHex(currentHex, palette) === colorId) {
+    return currentHex
+  }
+  return hexForColorId(colorId, palette, fallbackHex)
+}

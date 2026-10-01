@@ -11,9 +11,12 @@ import {
   normalizeReminders,
   type ReminderUnit
 } from '@shared/reminders'
+import { GOOGLE_EVENT_COLORS, DEFAULT_PICKER_COLOR } from '@shared/colors'
 import { useDialogA11y } from '../useDialogA11y'
 
-const DEFAULT_EVENT_COLOR = '#3b82f6'
+// In-app swatches of Google's own event colors instead of <input type="color">: Electron's
+// native color dialog doesn't open on Windows, and Google can only store these 11 colors.
+const DEFAULT_EVENT_COLOR = DEFAULT_PICKER_COLOR
 const REMINDER_UNIT_OPTIONS: ReminderUnit[] = ['m', 'h', 'd', 'w']
 
 export interface EventDialogResult {
@@ -231,14 +234,29 @@ export function EventDialog({ initialDate, existing, occurrence, onClose, onSave
               </div>
             </div>
             <div className="field">
-              <label htmlFor="ev-color">رنگ</label>
-              <input
-                id="ev-color"
-                type="color"
-                className="color-input"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-              />
+              <label id="ev-color-label">رنگ</label>
+              <div className="color-swatches" role="radiogroup" aria-labelledby="ev-color-label">
+                {/* A color not in the palette (e.g. from Google or an older version) stays selectable. */}
+                {(GOOGLE_EVENT_COLORS.some((c) => c.hex === color.toLowerCase())
+                  ? GOOGLE_EVENT_COLORS
+                  : [{ hex: color, label: 'رنگ فعلی' }, ...GOOGLE_EVENT_COLORS]
+                ).map((c) => {
+                  const selected = c.hex.toLowerCase() === color.toLowerCase()
+                  return (
+                    <button
+                      key={c.hex}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      aria-label={c.label}
+                      title={c.label}
+                      className={selected ? 'color-swatch selected' : 'color-swatch'}
+                      style={{ background: c.hex }}
+                      onClick={() => setColor(c.hex)}
+                    />
+                  )
+                })}
+              </div>
             </div>
             <div className="field">
               <label htmlFor="ev-freq">تکرار</label>

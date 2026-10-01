@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import { toFaDigits } from '@shared/format'
+import { textColorOn } from '@shared/colors'
 import type { Occurrence } from '@shared/types'
 import { layoutOverlaps } from './layoutOverlaps'
 import { anchorScrollTop, computeAnchorHour } from './scrollTarget'
@@ -103,7 +104,8 @@ export function TimeGrid({ columns, onSlotClick, onEventClick }: Props) {
                         height: `${Math.max(box.heightPct, 2)}%`,
                         right: `${box.rightPct}%`,
                         width: `calc(${box.widthPct}% - 2px)`,
-                        background: color
+                        background: color,
+                        color: textColorOn(color)
                       }}
                       onClick={(e) => {
                         e.stopPropagation()

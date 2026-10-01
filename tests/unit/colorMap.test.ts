@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
-import { colorIdForHex, hexForColorId } from '@main/sync/colorMap'
+import { colorIdForHex, hexForColorId, resolveInboundHex } from '@main/sync/colorMap'
 
 const PALETTE = {
   '1': { background: '#a4bdfc', foreground: '#1d1d1d' },
@@ -43,5 +43,20 @@ describe('hexForColorId', () => {
   it('returns the palette hex for a known colorId', () => {
     expect(hexForColorId('1', PALETTE, '#4285f4')).toBe('#a4bdfc')
     expect(hexForColorId('11', PALETTE, '#4285f4')).toBe('#dc2127')
+  })
+})
+
+describe('resolveInboundHex', () => {
+  it('keeps a custom local color that still maps to the inbound colorId', () => {
+    expect(resolveInboundHex('11', PALETTE, '#ef4444', '#4285f4')).toBe('#ef4444')
+  })
+
+  it('takes the palette color when the colorId was changed remotely', () => {
+    expect(resolveInboundHex('10', PALETTE, '#ef4444', '#4285f4')).toBe('#51b749')
+  })
+
+  it('falls back when there is no colorId or no local color', () => {
+    expect(resolveInboundHex(undefined, PALETTE, '#ef4444', '#4285f4')).toBe('#4285f4')
+    expect(resolveInboundHex('11', PALETTE, undefined, '#4285f4')).toBe('#dc2127')
   })
 })

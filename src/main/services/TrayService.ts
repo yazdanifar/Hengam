@@ -23,11 +23,11 @@ export class TrayService {
   ) {}
 
   update(day: JalaliDate, dayDate: Date, todaysEvents: Occurrence[], googleConnected: boolean): void {
-    this.tray.setTitle(`${toFaDigits(day.jd)} ${MONTH_NAMES[day.jm - 1]}`)
-
     const weekdayName = WEEKDAY_NAMES[weekdayIndex(dayDate)]
     const info = getDayInfo(day, this.holidays)
     const header = `${weekdayName} ${toFaDigits(day.jd)} ${MONTH_NAMES[day.jm - 1]} ${toFaDigits(day.jy)}`
+
+    this.tray.setTitle(`${toFaDigits(day.jd)} ${MONTH_NAMES[day.jm - 1]}`, header)
 
     const items: TrayMenuItem[] = [
       { label: header },

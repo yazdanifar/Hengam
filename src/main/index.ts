@@ -1,7 +1,10 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu, nativeImage, shell } from 'electron'
+import fs from 'node:fs'
 import path from 'node:path'
 import { buildContainer, type Container } from './container'
 import { registerIpc } from './ipc'
+import { HIDDEN_LAUNCH_ARG } from './adapters/electronAdapters'
+import { buildIco } from '../../scripts/ico.mjs'
 
 let mainWindow: BrowserWindow | null = null
 let container: Container | null = null
@@ -11,6 +14,8 @@ let container: Container | null = null
 // window is allowed to close for real and the quit sequence isn't aborted.
 const keepInTray = true
 let isQuitting = false
+// Latest day icon (Windows taskbar/window); reapplied if the window is recreated.
+let windowIcon: Electron.NativeImage | undefined
 
 function createWindow(show: boolean = true): void {
   mainWindow = new BrowserWindow({
@@ -20,6 +25,7 @@ function createWindow(show: boolean = true): void {
     minHeight: 640,
     title: 'هنگام',
     show,
+    ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -45,6 +51,36 @@ function createWindow(show: boolean = true): void {
   })
 }
 
+function setWindowIcon(png: Buffer): void {
+  if (process.platform !== 'win32') return
+  windowIcon = nativeImage.createFromBuffer(png).resize({ width: 256, height: 256 })
+  mainWindow?.setIcon(windowIcon)
+  updateShortcutIcon(windowIcon)
+}
+
+// The taskbar button takes its icon from the Start-menu shortcut that shares the app's
+// AppUserModelID, not from the window, so the shortcut's icon is rewritten each day.
+function updateShortcutIcon(img: Electron.NativeImage): void {
+  if (!app.isPackaged) return
+  try {
+    const shortcut = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Hengam.lnk')
+    if (!fs.existsSync(shortcut)) return
+    const sizes = [16, 32, 48, 256]
+    const ico = buildIco(
+      sizes.map((size) => ({ size, data: img.resize({ width: size, height: size }).toPNG() }))
+    )
+    const icoPath = path.join(app.getPath('userData'), 'day.ico')
+    fs.writeFileSync(icoPath, ico)
+    shell.writeShortcutLink(shortcut, 'update', {
+      ...shell.readShortcutLink(shortcut),
+      icon: icoPath,
+      iconIndex: 0
+    })
+  } catch (err) {
+    console.error('Shortcut icon update failed', err)
+  }
+}
+
 // Shows the window, creating it if it no longer exists (a login-item launch creates it
 // hidden, so usually this just reveals it). Passed into the container so the
 // tray's "نمایش هنگام" item and the Dock's activate event share this one path.
@@ -54,8 +90,21 @@ function showWindow(): void {
   if (mainWindow) container?.bridge.attach(mainWindow)
 }
 
+app.setAppUserModelId('ir.hengam.app') // Windows toast notifications need a stable id
+
+// A second copy would open the same database and double every reminder and sync.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => showWindow())
+}
+
 app.whenReady().then(() => {
-  container = buildContainer({ showWindow })
+  if (!gotSingleInstanceLock) return
+  // Packaged Windows build: no File/Edit/View bar on the window.
+  if (process.platform === 'win32' && app.isPackaged) Menu.setApplicationMenu(null)
+  container = buildContainer({ showWindow, setWindowIcon })
   registerIpc(container)
   container.reminders.start()
   container.dayTicker.start()
@@ -63,8 +112,11 @@ app.whenReady().then(() => {
   container.holidays.start()
   container.alerts.start()
   // Login items launch in the background: the Dock icon and tray still work, but no
-  // window pops up unasked-for (App Store guideline 2.4.5(iii) requires this).
-  const openedAtLogin = process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin
+  // window pops up unasked-for (App Store guideline 2.4.5(iii) requires this). On Windows
+  // the login item is registered with HIDDEN_LAUNCH_ARG instead.
+  const openedAtLogin =
+    (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin) ||
+    (process.platform === 'win32' && process.argv.includes(HIDDEN_LAUNCH_ARG))
   createWindow(!openedAtLogin)
   // Attach even when hidden: its renderer is live, and must keep receiving sync-status
   // and data-changed pushes so it isn't stale when the user first opens it.
@@ -74,7 +126,7 @@ app.whenReady().then(() => {
 })
 
 // Fired before any window starts closing, for every quit path: Cmd+Q, the Dock's
-// "Quit" item, a tray "Quit" menu item calling app.quit(), or app.quit() from
+// "Quit" item, the tray "Quit" item (the only quit path on Windows) calling app.quit(), or app.quit() from
 // anywhere else. Without this flag the window's close handler above would keep
 // preventing the close, and Electron aborts the whole quit sequence when a
 // window's close is prevented — Cmd+Q would silently do nothing.

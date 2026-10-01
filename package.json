@@ -1,7 +1,7 @@
 {
   "name": "hengam",
   "version": "0.1.0",
-  "description": "هنگام — Persian (Jalali) daily planner for macOS",
+  "description": "هنگام — Persian (Jalali) daily planner",
   "main": "out/main/index.js",
   "author": "",
   "license": "MIT",
@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint . --ext .ts,.tsx",
     "verify": "npm run typecheck && npm run test:coverage",
-    "build:mac": "npm run icon && npm run build && electron-builder --mac dmg --arm64"
+    "build:mac": "npm run icon && npm run build && electron-builder --mac dmg --arm64",
+    "build:win": "npm run icon && npm run build && electron-builder --win nsis --x64"
   },
   "build": {
     "appId": "ir.hengam.app",
@@ -27,6 +28,7 @@
     "files": [
       "out/**/*",
       "build/icon-day.svg",
+      "build/icon-tray.svg",
       "src/shared/data/holidays/**/*.json"
     ],
     "asarUnpack": [
@@ -38,6 +40,16 @@
       "icon": "build/icon.png",
       "extendInfo": { "CFBundleDevelopmentRegion": "fa" },
       "target": [{ "target": "dmg", "arch": ["arm64"] }]
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "Hengam",
+      "createDesktopShortcut": true
     }
   },
   "dependencies": {

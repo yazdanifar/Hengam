@@ -1,6 +1,6 @@
 # هنگام (Hengam)
 
-A Persian (Jalali) daily planner for macOS, built with Electron + React. Week starts
+A Persian (Jalali) daily planner for macOS and Windows, built with Electron + React. Week starts
 on Saturday (شنبه), everything is Jalali-first with the Gregorian date shown
 alongside, digits are Persian, and official Iranian holidays/occasions are shown
 from a data file scraped from time.ir.
@@ -8,8 +8,9 @@ from a data file scraped from time.ir.
 ## Requirements
 
 - Node.js and npm
-- Xcode Command Line Tools (`xcode-select --install`) — needed to compile
-  `better-sqlite3` for Electron's Node-API ABI
+- To compile `better-sqlite3` for Electron's Node-API ABI:
+  - macOS: Xcode Command Line Tools (`xcode-select --install`)
+  - Windows: Visual Studio Build Tools ("Desktop development with C++") and Python 3
 
 ## Getting started
 
@@ -17,8 +18,12 @@ from a data file scraped from time.ir.
 npm install       # also rebuilds better-sqlite3 for Electron via postinstall
 npm run dev       # launch in development
 npm test          # run the test suite
-npm run build:mac # produce an unsigned arm64 .dmg in dist/
+npm run build:mac # produce an unsigned arm64 .dmg in dist/ (run on a Mac)
+npm run build:win # produce an unsigned x64 NSIS installer in dist/ (run on Windows)
 ```
+
+The native `better-sqlite3` module is built for the machine you run `npm install` on, so
+each platform's package must be built on that platform.
 
 ## Google Calendar sync
 
@@ -54,8 +59,8 @@ only extends 3 years ahead and can be disturbed by editing the series in Google'
 This implements the full local-first planner: Jalali day/week/month views with
 overlapping-event layout, recurring events (daily/weekly/monthly/yearly on the
 Jalali calendar, with per-occurrence edit exceptions), a per-day task list,
-reminders via macOS notifications, a dynamic Dock icon showing today's Jalali
-day, a menu-bar tray with Google sync status, two-way Google Calendar sync, and
+reminders via OS notifications, a dynamic Dock/taskbar/tray icon showing today's Jalali
+day, a menu-bar (macOS) / system-tray (Windows) tray with Google sync status, two-way Google Calendar sync, and
 SQLite storage behind a ports/adapters architecture so services are
 unit-testable with fakes.
 

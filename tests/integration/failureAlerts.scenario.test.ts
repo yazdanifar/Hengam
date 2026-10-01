@@ -28,8 +28,10 @@ withRollback(() => db)
 const MIN = 60_000
 const HOUR = 60 * MIN
 const DAY = 24 * HOUR
+// setImmediate, not setTimeout(0): on Windows a 0ms timer takes ~13ms, which made this
+// suite exceed vitest's default 5s timeout.
 const flush = async () => {
-  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r))
 }
 
 class TimeIr implements HolidayFeed {

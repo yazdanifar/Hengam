@@ -39,6 +39,7 @@ export class ElectronBrowserLauncher implements BrowserLauncher {
   }
 }
 
+/** macOS Dock icon. Other platforms are handled by the tray and window icon sinks. */
 export class ElectronDock implements DockPort {
   setIcon(pngBuffer: Buffer): void {
     if (process.platform === 'darwin' && app.dock) {
@@ -50,13 +51,21 @@ export class ElectronDock implements DockPort {
 export class ElectronTray implements TrayPort {
   private tray: Tray | undefined
 
-  constructor() {
-    // No icon: the menu bar shows just the date title.
+  constructor(onActivate?: () => void) {
+    // macOS: no icon, the menu bar shows just the date title. Windows has no tray text,
+    // so the icon is replaced with the day icon via setIcon() and the date goes in the tooltip.
     this.tray = new Tray(nativeImage.createEmpty())
+    if (process.platform === 'win32' && onActivate) this.tray.on('click', onActivate)
   }
 
-  setTitle(title: string): void {
-    this.tray?.setTitle(title)
+  setTitle(title: string, tooltip?: string): void {
+    this.tray?.setTitle(title) // macOS only
+    this.tray?.setToolTip(tooltip ?? title)
+  }
+
+  setIcon(pngBuffer: Buffer): void {
+    if (process.platform !== 'win32') return
+    this.tray?.setImage(nativeImage.createFromBuffer(pngBuffer).resize({ width: 32, height: 32 }))
   }
 
   setMenuItems(items: TrayMenuItem[]): void {
@@ -74,20 +83,28 @@ export class ElectronTray implements TrayPort {
   }
 }
 
-/** Registers/unregisters Hengam as a macOS login item. No-op on other platforms. */
+/** Argument Windows passes at login so the app starts hidden in the tray. */
+export const HIDDEN_LAUNCH_ARG = '--hidden'
+
+/** Registers/unregisters Hengam as a macOS/Windows login item. No-op on other platforms. */
 export class ElectronLoginItem implements LoginItemPort {
   isEnabled(): boolean {
-    if (process.platform !== 'darwin') return false
-    return app.getLoginItemSettings().openAtLogin
+    if (process.platform === 'darwin') return app.getLoginItemSettings().openAtLogin
+    if (process.platform === 'win32') {
+      return app.getLoginItemSettings({ args: [HIDDEN_LAUNCH_ARG] }).openAtLogin
+    }
+    return false
   }
 
   setEnabled(on: boolean): void {
-    if (process.platform !== 'darwin') return
-    app.setLoginItemSettings({ openAtLogin: on })
+    if (process.platform === 'darwin') app.setLoginItemSettings({ openAtLogin: on })
+    else if (process.platform === 'win32') {
+      app.setLoginItemSettings({ openAtLogin: on, args: [HIDDEN_LAUNCH_ARG] })
+    }
   }
 }
 
-/** Encrypts secrets with the OS Keychain (via safeStorage) before writing them to disk. */
+/** Encrypts secrets with the OS keychain/DPAPI (via safeStorage) before writing them to disk. */
 export class KeychainSecretStore implements SecretStore {
   constructor(private filePath: string) {}
 

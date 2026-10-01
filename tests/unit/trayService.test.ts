@@ -7,9 +7,11 @@ const noHolidays: HolidaySource = { getYear: () => undefined }
 
 class FakeTray {
   title = ''
+  tooltip: string | undefined = ''
   items: TrayMenuItem[] = []
-  setTitle(title: string): void {
+  setTitle(title: string, tooltip?: string): void {
     this.title = title
+    this.tooltip = tooltip
   }
   setMenuItems(items: TrayMenuItem[]): void {
     this.items = items
@@ -29,6 +31,17 @@ function buildCallbacks(overrides: Partial<TrayCallbacks> = {}): TrayCallbacks {
 }
 
 describe('TrayService', () => {
+  it('passes the full Jalali date as the tooltip alongside the short title', () => {
+    const tray = new FakeTray()
+    const service = new TrayService(tray, noHolidays, buildCallbacks())
+
+    service.update({ jy: 1405, jm: 6, jd: 31 }, new Date('2026-09-22'), [], false)
+
+    expect(tray.title).toContain('۳۱')
+    expect(tray.tooltip).toContain('۱۴۰۵')
+    expect(tray.tooltip).toContain('۳۱')
+  })
+
   it('shows the login-item toggle as unchecked when disabled', () => {
     const tray = new FakeTray()
     const service = new TrayService(tray, noHolidays, buildCallbacks({ isOpenAtLogin: () => false }))

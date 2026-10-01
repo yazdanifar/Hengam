@@ -33,8 +33,11 @@ export interface PowerEvents {
   onUnlockScreen(cb: () => void): () => void
 }
 
+/** Whatever shows today's date as an icon: the macOS Dock, or the Windows tray and taskbar. */
 export interface DockPort {
   setIcon(pngBuffer: Buffer): void
+  /** A simplified icon that stays legible at 16-32px (Windows tray and taskbar). */
+  setSmallIcon?(pngBuffer: Buffer): void
 }
 
 export interface TrayMenuItem {
@@ -45,7 +48,9 @@ export interface TrayMenuItem {
 }
 
 export interface TrayPort {
-  setTitle(title: string): void
+  /** `title` is the macOS menu-bar text; `tooltip` is the hover text on Windows. */
+  setTitle(title: string, tooltip?: string): void
+  setIcon?(pngBuffer: Buffer): void
   setMenuItems(items: TrayMenuItem[]): void
 }
 

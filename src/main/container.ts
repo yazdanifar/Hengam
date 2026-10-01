@@ -37,7 +37,13 @@ import { appendFileSync } from 'node:fs'
 import { toJalali } from '@shared/jalali'
 
 /** The composition root: the only place real adapters are built and wired to services. */
-export function buildContainer({ showWindow }: { showWindow: () => void }) {
+export function buildContainer({
+  showWindow,
+  setWindowIcon
+}: {
+  showWindow: () => void
+  setWindowIcon: (png: Buffer) => void
+}) {
   const dataDir = process.env.HENGAM_DATA_DIR || app.getPath('userData')
   installFileLogger(dataDir)
   const dbPath = path.join(dataDir, 'planner.db')
@@ -85,15 +91,26 @@ export function buildContainer({ showWindow }: { showWindow: () => void }) {
 
   const reminders = new ReminderService(db, clock, notifier, events, undefined, (r) => notifications.addReminder(r))
 
-  const dock = new ElectronDock()
+  const macDock = new ElectronDock()
+  const trayPort = new ElectronTray(showWindow)
+  // The detailed day icon goes to the macOS Dock; the simplified one to the Windows tray and window/taskbar.
+  const dock = {
+    setIcon(png: Buffer): void {
+      macDock.setIcon(png)
+    },
+    setSmallIcon(png: Buffer): void {
+      trayPort.setIcon(png)
+      setWindowIcon(png)
+    }
+  }
   const iconTemplatePath = path.join(__dirname, '../../build/icon-day.svg')
+  const smallIconTemplatePath = path.join(__dirname, '../../build/icon-tray.svg')
   // resvg's native code can't read inside app.asar, so the font is asar-unpacked (see package.json).
   const dockIconFont = path
     .join(__dirname, '../../node_modules/vazirmatn/fonts/ttf/Vazirmatn-ExtraBold.ttf')
     .replace('app.asar', 'app.asar.unpacked')
-  const dockIcon = new DockIconService(dock, iconTemplatePath, dockIconFont)
+  const dockIcon = new DockIconService(dock, iconTemplatePath, dockIconFont, smallIconTemplatePath)
 
-  const trayPort = new ElectronTray()
   const loginItem = new ElectronLoginItem()
   // Default "open at login" on so the Dock icon shows today's date without the user
   // having to find the toggle. Applied once ever (tracked in meta), so a user who
